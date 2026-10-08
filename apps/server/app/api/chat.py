@@ -1,224 +1,231 @@
 from __future__ import annotations
 
-import json
-from typing import Any
+import re
+from typing import Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.services.context_manager import context_manager
-from app.services.llm.orchestrator import run_agent_workflow
-from app.services.response_separator import separator
-from app.services.storage import (
-    add_assistant_output,
-    add_conversation_message,
-    ensure_conversation,
-    get_conversation,
-    get_history_for_llm,
-    list_conversation_messages,
-    search_conversation_history,
-)
-from app.services.tools.schema import TOOLS_SCHEMA
-from app.utils.response_cleaner import cleaner
-
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# ===== Qloo grounding: lightweight cultural-like extraction (no LLM, no NLP deps) =====
+_LIKE_PATTERN = re.compile(
+    r"(?:love|loves|like|likes|enjoy|enjoys|fan of|into)\s+([^.!?。！？\n;]{2,})",
+    re.IGNORECASE,
+)
+_CLAUSE_STARTERS = re.compile(
+    r"\b(but|where|what|how|who|which|when|because|needs?|would|can|to|that)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_like_segments(phrase: str, max_likes: int = 6) -> list[str]:
+    """Split a like-phrase into candidate cultural anchors and drop clause tails.
+
+    "Frank Sinatra and Italian food but needs low-sodium meals" -> ["Frank Sinatra", "Italian food"].
+    Clause-starter words (but / where / needs...) cut the tail so the remaining
+    fragment is a clean search term for Qloo.
+    """
+    parts = re.split(r"\s+(?:and|&)\s*|\s+—\s*|\s*,\s*|，|、|;|；", phrase)
+    out: list[str] = []
+    for part in parts:
+        part = part.strip(" \t_·-–—':;\",，。")
+        if not part:
+            continue
+        cut = _CLAUSE_STARTERS.search(part)
+        if cut:
+            part = part[: cut.start()].strip(" \t-–—':;\",，。")
+        part = re.sub(r"^(?:the|a|an)\s+", "", part, count=1, flags=re.I)
+        if not part or part.lower() in out:
+            continue
+        out.append(part)
+        if len(out) >= max_likes:
+            break
+    return out
+
+
+def _extract_cultural_likes(message: str, max_likes: int = 4) -> list[str]:
+    """Extract up to max_likes cultural anchors from free-text user input."""
+    likes: list[str] = []
+    for m in _LIKE_PATTERN.finditer(message):
+        for seg in _clean_like_segments(m.group(1), max_likes=max_likes):
+            if seg.lower() not in [x.lower() for x in likes]:
+                likes.append(seg)
+            if len(likes) >= max_likes:
+                return likes
+    return likes
+
+
+def _fallback_queries(like: str, max_drop: int = 3) -> list[str]:
+    """Progressive de-scoping so 'the films of Christopher Nolan' still resolves."""
+    words = like.split()
+    return [" ".join(words[drop:]) for drop in range(max_drop + 1) if len(words) > drop]
+
+
+async def _collect_grounded_entities(
+    client: Any, likes: list[str], max_entities: int = 3
+) -> list[dict[str, Any]]:
+    """Resolve each extracted like to a real Qloo entity (deduped, max 3)."""
+    from app.services.qloo.taste import search_cultural_entities
+
+    hits: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for like in likes:
+        for query in _fallback_queries(like):
+            try:
+                res = await search_cultural_entities(client, query, limit=1)
+            except Exception:
+                res = []
+            if res:
+                ent = res[0]
+                name = ent.get("name") or ent.get("entity_id") or ""
+                if name and name.lower() not in seen_names:
+                    seen_names.add(name.lower())
+                    hits.append(ent)
+                break
+        if len(hits) >= max_entities:
+            break
+    return hits
+
+
+def _format_grounding_context(hits: list[dict[str, Any]]) -> str:
+    """Render the resolved entity list as the Qloo context block for the LLM."""
+    lines = ["[Qloo Cultural Intelligence - Taste Entities resolved from your message]"]
+    for i, ent in enumerate(hits, 1):
+        name = ent.get("name", "Unknown")
+        etype = ent.get("type", "unknown")
+        domain = ent.get("domain", etype)
+        lines.append(f"  {i}. {name} ({etype}) [domain={domain}]")
+    lines.append("[End of Qloo Taste Entities - use these only to ground your recommendations]")
+    return "\n".join(lines)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User input message")
     mode: str = Field(default="default", description="Agent mode")
-    system_context: dict[str, Any] | None = Field(default=None, description="Realtime desktop monitor context")
-    voice_context: dict[str, Any] | None = Field(default=None, description="Voice/session context")
-    conversation_id: int | None = Field(default=None, description="Persistent conversation id")
-    role_prompt: str | None = Field(default=None, description="Role prompt override")
+    system_context: dict[str, Any] | None = Field(default=None)
+    voice_context: dict[str, Any] | None = Field(default=None)
+    conversation_id: int | None = Field(default=None)
+    role_prompt: str | None = Field(default=None)
 
 
 class ChatResponse(BaseModel):
     reply: str
-    review_notes: str | None = None
-    review_source: str | None = None
-    used_system_context: bool = False
-    used_voice_context: bool = False
-    tts_content: str | None = None
-    tts_required: bool = False
-    conversation_id: int | None = None
-    memory_messages: list[dict[str, Any]] = Field(default_factory=list)
-    context_info: dict[str, Any] = Field(default_factory=dict)
-    # 新增：前端可选消费
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
-    pending_confirm: list[dict[str, Any]] = Field(default_factory=list)
+    taste_entities: list[str] = Field(default_factory=list)
+    taste_data_source: str = ""
+    qloo_context: Any | None = None
 
 
 @router.post("/agent", response_model=ChatResponse)
 async def chat_with_agent(payload: ChatRequest):
-    memory_messages: list[dict[str, Any]] = []
-    effective_message = payload.message
-    context_info: dict[str, Any] = {
-        "original_turns": 0,
-        "optimized_turns": 0,
-        "history_summary": None,
-        "context_strategy": context_manager.strategy.value,
-        "estimated_tokens": 0,
-        "history_was_cleaned": False,
-        "history_was_truncated": False,
-    }
-    conversation_id = payload.conversation_id
+    """Chat with the culturally intelligent agent.
 
-    if conversation_id is None:
-        auto_conversation = ensure_conversation(
-            title="桌面文本会话",
-            role_prompt=payload.role_prompt or "你是一个偏桌面效率、系统诊断与语音交互的 AI Agent",
-        )
-        conversation_id = int(auto_conversation["id"])
+    Uses the shared LLM provider (provider.chat) — NOT the OpenAI SDK's
+    namespace object — and wraps the user message with the Qloo cultural
+    recommendation system prompt + context injection from prompts.py.
 
-    conversation = get_conversation(conversation_id) if conversation_id is not None else None
-    if conversation:
-        memory_messages = list_conversation_messages(conversation_id)
-        history_messages = get_history_for_llm(conversation_id, limit=6)
-        history_candidates = [
-            {
-                "role": item.role,
-                "content": item.content,
-                "created_at": item.timestamp,
-                "metadata": {},
-                "is_meta": item.is_meta,
-                "is_fallback": item.is_fallback,
-            }
-            for item in history_messages
-        ]
-        optimized_history, history_summary = context_manager.process(
-            history=history_candidates,
-            current_message=payload.message,
-        )
-        role_prompt = payload.role_prompt or conversation.get("role_prompt") or ""
-        effective_message = context_manager.build_prompt(
-            history=optimized_history,
-            current_user_msg=payload.message,
-            system_prompt=f"你是一个偏桌面效率、系统诊断与语音交互的 AI Agent。角色设定：{role_prompt or '默认桌面Agent'}",
-        )
-        context_info = {
-            "original_turns": len(history_candidates),
-            "optimized_turns": len(optimized_history),
-            "history_summary": history_summary,
-            "context_strategy": context_manager.strategy.value,
-            "estimated_tokens": context_manager.get_context_length(optimized_history),
-            "history_was_cleaned": any(item.was_cleaned for item in history_messages),
-            "history_was_truncated": len(history_messages) < len([item for item in memory_messages if item.get("role") in {"user", "assistant", "system"}]),
-        }
+    Live grounding: when Qloo is enabled, cultural likes are extracted from the
+    user message, resolved through search_cultural_entities(), injected via
+    CULTURAL_CONTEXT_INJECTION, and returned as taste_entities / taste_data_source
+    / qloo_context so the web Agent tab can render real grounding evidence.
 
-    # ===== 改造：传入 tools，让 LLM 自主决定 =====
-    result = await run_agent_workflow(
-        effective_message,
-        payload.mode,
-        system_context=payload.system_context,
-        voice_context=payload.voice_context,
-        tools=TOOLS_SCHEMA,
-        conversation_id=conversation_id,
+    When Qloo is disabled or nothing resolves, the endpoint returns an EMPTY
+    grounding payload (panel shows nothing) instead of claiming it used Qloo.
+
+    Without an LLM key the endpoint still answers deterministically in preview
+    mode, so the web demo Agent tab never hard-fails on a fresh checkout.
+    """
+    from app.services.llm.provider import provider
+    from app.services.qloo.prompts import (
+        CULTURAL_RECOMMENDATION_SYSTEM_PROMPT,
+        CULTURAL_CONTEXT_INJECTION,
     )
 
-    fallback_reason = str(result.get("fallback_reason") or "") or None
+    user_prompt = payload.message
+    if payload.system_context:
+        user_prompt += f"\n\n[System Context]\n{payload.system_context}"
 
-    # 提取待确认任务（从 tool_results 中筛选）
-    pending_confirm: list[dict[str, Any]] = []
-    for tr in result.get("tool_results", []):
-        try:
-            tr_content = json.loads(tr.get("content", "{}"))
-            if tr_content.get("confirm_required"):
-                pending_confirm.append(tr_content)
-        except Exception:
-            pass
+    system_prompt = CULTURAL_RECOMMENDATION_SYSTEM_PROMPT
 
-    if conversation_id is not None:
-        add_conversation_message(
-            conversation_id,
-            "user",
-            context_manager.clean_content(payload.message),
-            {
-                **(payload.voice_context or {}),
-                "type": "user_input",
-            },
+    if not provider.enabled:
+        reply = (
+            "I'm running in preview mode — no LLM API key is configured, so I can't "
+            "generate a live reply yet. Set LLM_API_KEY to enable culturally grounded "
+            "answers from the Qloo taste graph."
         )
-        # 保存 assistant 输出，附带工具调用元数据
-        extra_meta: dict[str, Any] = {}
-        if result.get("tool_calls"):
-            extra_meta["tool_calls"] = result["tool_calls"]
-        if result.get("tool_results"):
-            extra_meta["tool_results"] = result["tool_results"]
+        return ChatResponse(reply=reply, taste_data_source="preview")
 
-        add_assistant_output(
-            conversation_id,
-            cleaner.clean(result["reply"]),
-            review_source=result.get("review_source"),
-            used_system_context=bool(result.get("used_system_context", False)),
-            used_voice_context=bool(result.get("used_voice_context", False)),
-            fallback_reason=fallback_reason,
-            system_snapshot=payload.system_context,
-            extra_meta=extra_meta,
-        )
-        memory_messages = list_conversation_messages(conversation_id)
+    # ---- Live grounding: resolve cultural likes against the Qloo taste graph ----
+    taste_entities: list[str] = []
+    taste_data_source = ""
+    qloo_context: Any = None
+    try:
+        from app.services.qloo.client import get_qloo_client
 
-    # 清洗响应中的内部标记，并拆分展示内容 / TTS 内容
-    result["reply"] = cleaner.clean(result["reply"])
-    if result.get("review_notes"):
-        result["review_notes"] = cleaner.clean(result["review_notes"])
+        client = get_qloo_client()
+        if client.enabled:
+            likes = _extract_cultural_likes(payload.message)
+            hits = await _collect_grounded_entities(client, likes, max_entities=3)
+            if hits:
+                taste_context = _format_grounding_context(hits)
+                injected = CULTURAL_CONTEXT_INJECTION.format(qloo_context=taste_context)
+                user_prompt = f"{injected.strip()}\n\n{user_prompt}"
+                taste_entities = [h.get("name", "") for h in hits if h.get("name")]
+                taste_data_source = "live"
+                qloo_context = taste_context
+    except Exception:
+        taste_entities, taste_data_source, qloo_context = [], "", None
 
-    tts_content, display_content = separator.separate(
-        full_response=result["reply"],
-        user_intent=payload.mode,
+    result = await provider.chat(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=0.2,
+        task_type="qloo_cultural_recommendation",
     )
-    result["reply"] = display_content
-    result["tts_content"] = tts_content
-    result["tts_required"] = bool(tts_content.strip())
-
+    reply = result if isinstance(result, str) else str(result)
     return ChatResponse(
-        **result,
-        conversation_id=conversation_id,
-        memory_messages=memory_messages,
-        context_info=context_info,
-        tool_calls=result.get("tool_calls", []),
-        pending_confirm=pending_confirm,
+        reply=reply,
+        taste_entities=taste_entities,
+        taste_data_source=taste_data_source,
+        qloo_context=qloo_context,
     )
 
 
-class ContextCompressRequest(BaseModel):
-    history: list[dict[str, Any]] = Field(default_factory=list)
-    current_message: str | None = None
+class FeedbackRequest(BaseModel):
+    message_id: str = Field(..., min_length=1, description="Opaque id of the assistant recommendation message (client-generated).")
+    thumb: Literal["up", "down"] = Field(..., description="User sentiment: 'up' likes the recommendation, 'down' dislikes it.")
+    taste_entities: list[str] = Field(default_factory=list, description="Taste entity names this feedback applies to (from qloo:taste-context).")
+    conversation_id: int | None = Field(default=None, description="Optional conversation id for context.")
 
 
-@router.post("/context/compress")
-async def compress_context(payload: ContextCompressRequest):
-    optimized_history, history_summary = context_manager.process(
-        history=payload.history,
-        current_message=payload.current_message,
+class FeedbackResponse(BaseModel):
+    ok: bool
+    message_id: str
+    thumb: str
+    data_source: str
+    qloo_enabled: bool
+    recorded: bool
+    note: str | None = None
+    liked_taste_names: list[str] = Field(default_factory=list)
+    disliked_taste_names: list[str] = Field(default_factory=list)
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def submit_feedback(payload: FeedbackRequest):
+    from app.services.qloo.client import get_qloo_client
+    from app.services.qloo.feedback import get_disliked_taste_names, get_liked_taste_names, record_feedback
+
+    client = get_qloo_client()
+    record = record_feedback(payload.message_id, payload.thumb, payload.taste_entities)
+    live = client.enabled
+    return FeedbackResponse(
+        ok=True,
+        message_id=record["message_id"],
+        thumb=record["thumb"],
+        data_source="live" if live else "preview",
+        qloo_enabled=live,
+        recorded=True,
+        note=None if live else "Preview feedback recorded in memory only (no QLOO_API_KEY).",
+        liked_taste_names=sorted(get_liked_taste_names()) if live else [],
+        disliked_taste_names=sorted(get_disliked_taste_names()) if live else [],
     )
-    return {
-        "success": True,
-        "message": "历史已压缩" if history_summary else "历史记录较短，无需压缩",
-        "compressed_history": optimized_history,
-        "compression_summary": history_summary,
-        "original_turns": len(payload.history),
-        "new_turns": len(optimized_history),
-        "estimated_tokens": context_manager.get_context_length(optimized_history),
-        "context_strategy": context_manager.strategy.value,
-    }
-
-
-# ===== 新增：历史记录搜索接口（供前端 SessionHistory 使用） =====
-@router.get("/history/search")
-async def search_history(
-    conversation_id: int,
-    q: str = Query(default="", description="搜索关键词"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-):
-    """
-    搜索会话历史处理记录，返回聚合后的"处理记录"列表
-    """
-    records, total = search_conversation_history(conversation_id, q, limit, offset)
-    return {
-        "records": records,
-        "total": total,
-        "q": q,
-        "limit": limit,
-        "offset": offset,
-    }

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -19,31 +20,22 @@ if hasattr(sys.stderr, 'reconfigure') and (sys.stderr.encoding or '').lower() !=
 
 load_dotenv(Path(__file__).resolve().parents[1] / '.env')
 
-from app.api import agent, automation, browser, chat, desktop, health, provider, storage, system_app, task_filter, tools, voice, screenshot, store, content_generator, generator_settings, task_workflow, desktop_tools, subscription
-from app.services.storage import init_storage
+# Web demo（apps/web）专注：仅 import web demo 用到的 6 个 router。
+# 桌面端 router(automation / voice / desktop / provider / browser / agent 等)
+# 已全部清理，不再 import；相关文件不再暴露路由。
+from app.api import ablation, chat, health, qloo, tastecare, tools
 from app.utils.response_cleaner import clean_fastapi_response_body
 
 
 # ========== 使用 lifespan 替代废弃的 on_event("startup") ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时执行
     try:
-        init_storage()
-        print("Storage initialized successfully")
+        from app.services.rag.store import DualIndexStore
+        print("RAG store available")
     except Exception as e:
-        print(f"Warning: Storage init failed: {e}")
-    try:
-        from app.services.observability.langfuse_client import init_langfuse
-        lf_result = init_langfuse()
-        if lf_result is not None:
-            print("LangFuse initialized successfully (trace will be reported)")
-        else:
-            print("LangFuse disabled (env vars missing or init failed)")
-    except Exception as e:
-        print(f"Warning: LangFuse init failed (non-fatal): {e}")
+        print(f"Warning: RAG store init skipped: {e}")
     yield
-    # 关闭时执行（如需清理资源）
 
 
 app = FastAPI(
@@ -122,23 +114,10 @@ async def root():
 async def Health_check():
     return {"status": "healthy"}
 
-# ========== 路由在模块顶层直接注册（替代延迟加载） ==========
+# ========== Web demo 路由注册（仅 7 个，专注 apps/web） ==========
 app.include_router(health.router)
 app.include_router(chat.router)
-app.include_router(automation.router)
-app.include_router(storage.router)
 app.include_router(tools.router)
-app.include_router(voice.router)
-app.include_router(agent.router)
-app.include_router(task_filter.router)
-app.include_router(browser.router)
-app.include_router(system_app.router)
-app.include_router(screenshot.router)
-app.include_router(store.router)
-app.include_router(desktop.router)
-app.include_router(provider.router)
-app.include_router(content_generator.router)
-app.include_router(generator_settings.router)
-app.include_router(task_workflow.router)
-app.include_router(desktop_tools.router)
-app.include_router(subscription.router)
+app.include_router(qloo.router)
+app.include_router(tastecare.router)
+app.include_router(ablation.router)

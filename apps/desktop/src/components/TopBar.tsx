@@ -1,23 +1,21 @@
-import type { SystemMetrics } from '../types'
-
 interface TopBarProps {
   agentStatus: string
   preloadStatus: string
   voiceStatusText?: string
-  metrics?: SystemMetrics | null
   error?: string
+  isMuted?: boolean
+  onToggleMute?: () => void
   onOpenConfig?: () => void
-  onOpenWindowSettings?: () => void
 }
 
 export function TopBar({
   agentStatus,
   preloadStatus,
   voiceStatusText,
-  metrics,
   error,
+  isMuted,
+  onToggleMute,
   onOpenConfig,
-  onOpenWindowSettings,
 }: TopBarProps) {
   return (
     <header style={{
@@ -44,7 +42,7 @@ export function TopBar({
           {agentStatus}
         </span>
         <span style={{ fontSize: '12px', color: '#64748b' }}>
-          preload: {preloadStatus}
+          {preloadStatus}
         </span>
       </div>
 
@@ -60,16 +58,26 @@ export function TopBar({
             🎤 {voiceStatusText}
           </span>
         )}
-        {metrics && (
-          <span style={{ fontSize: '12px', color: '#64748b' }}>
-            CPU {metrics.cpu.usagePercent.toFixed(0)}% · MEM {metrics.memory.usagePercent.toFixed(0)}%
-          </span>
-        )}
         {error && (
           <span style={{ fontSize: '12px', color: '#ef4444', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             ⚠️ {error}
           </span>
         )}
+        <button
+          onClick={onToggleMute}
+          title={isMuted ? '取消静音' : '静音'}
+          style={{
+            background: 'transparent',
+            border: `1px solid ${isMuted ? '#ef4444' : '#334155'}`,
+            color: isMuted ? '#ef4444' : '#94a3b8',
+            padding: '6px 12px',
+            borderRadius: '6px',
+            fontSize: '13px',
+            cursor: 'pointer',
+          }}
+        >
+          {isMuted ? '🔇' : '🔊'}
+        </button>
         <button
           onClick={onOpenConfig}
           style={{
@@ -83,21 +91,6 @@ export function TopBar({
           }}
         >
           ⚙️ 设置
-        </button>
-        <button
-          onClick={onOpenWindowSettings}
-          style={{
-            background: 'transparent',
-            border: '1px solid #334155',
-            color: '#94a3b8',
-            padding: '6px 12px',
-            borderRadius: '6px',
-            fontSize: '13px',
-            cursor: 'pointer',
-          }}
-          title="窗口管理"
-        >
-          🪟
         </button>
       </div>
     </header>

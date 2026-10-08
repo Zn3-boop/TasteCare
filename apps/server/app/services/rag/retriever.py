@@ -1,12 +1,69 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
 from app.services.rag.store import DualIndexStore
 
 logger = logging.getLogger(__name__)
+
+_RERANKER_MODEL_PATH = os.getenv(
+    "RAG_RERANK_MODEL_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "bge-reranker-base"),
+)
+_RERANKER_ENABLED = os.getenv("RAG_RERANK_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
+_cross_encoder: Any = None
+_cross_encoder_loaded: bool = False
+_cross_encoder_available: bool | None = None
+
+
+def _get_cross_encoder() -> Any | None:
+    """Load the local cross-encoder model (singleton, local_files_only=True).
+
+    Returns the CrossEncoder instance if available, None otherwise.
+    Never attempts online download — if the local model directory is missing
+    or corrupted, returns None and logs a warning.
+    """
+    global _cross_encoder, _cross_encoder_loaded, _cross_encoder_available
+
+    if _cross_encoder_loaded:
+        return _cross_encoder if _cross_encoder_available else None
+
+    _cross_encoder_loaded = True
+
+    if not _RERANKER_ENABLED:
+        logger.info("[Reranker] disabled via RAG_RERANK_ENABLED=false")
+        _cross_encoder_available = False
+        return None
+
+    if not os.path.isdir(_RERANKER_MODEL_PATH):
+        logger.warning(
+            f"[Reranker] local model not found at {_RERANKER_MODEL_PATH}; "
+            f"falling back to RRF-only. Set RAG_RERANK_ENABLED=false to suppress."
+        )
+        _cross_encoder_available = False
+        return None
+
+    try:
+        from sentence_transformers import CrossEncoder
+
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        _cross_encoder = CrossEncoder(_RERANKER_MODEL_PATH)
+        _cross_encoder_available = True
+        logger.info(f"[Reranker] loaded local model from {_RERANKER_MODEL_PATH}")
+        return _cross_encoder
+    except ImportError:
+        logger.warning("[Reranker] sentence_transformers未安装; 降级为RRF-only")
+        _cross_encoder_available = False
+        return None
+    except Exception as exc:
+        logger.warning(f"[Reranker] 本地模型加载失败: {exc}; 降级为RRF-only")
+        _cross_encoder_available = False
+        return None
 
 
 def rrf_merge(
@@ -48,32 +105,43 @@ def rerank_cross_encoder(
     query: str,
     candidates: list[dict[str, Any]],
     top_k: int = 3,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
-    R9: 交叉编码器精排 Top K
-    如果cross-encoder不可用则跳过精排
+    R9: 交叉编码器精排 Top K (offline-only, no HuggingFace download).
+
+    Returns (reranked_candidates, rerank_meta) where meta contains:
+      - method: "cross_encoder" | "rrf_fallback"
+      - model_path: the local path used (or "")
+      - reason: why fallback was chosen (if applicable)
     """
+    meta: dict[str, Any] = {
+        "method": "rrf_fallback",
+        "model_path": _RERANKER_MODEL_PATH,
+        "reason": "",
+    }
+
     if not candidates:
-        return candidates
+        meta["reason"] = "no_candidates"
+        return candidates, meta
+
+    ce = _get_cross_encoder()
+    if ce is None:
+        meta["reason"] = "model_unavailable"
+        return candidates[:top_k], meta
+
     try:
-        from sentence_transformers import CrossEncoder
-        model_name = os.getenv("RAG_RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-        ce = CrossEncoder(model_name)
         pairs = [(query, c["content"][:512]) for c in candidates]
         scores = ce.predict(pairs)
         for i, score in enumerate(scores):
             candidates[i]["rerank_score"] = float(score)
         candidates.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-        return candidates[:top_k]
-    except ImportError:
-        logger.debug("CrossEncoder不可用, 跳过精排")
-        return candidates[:top_k]
-    except Exception as e:
-        logger.warning(f"交叉编码器精排失败: {e}, 使用RRF排序")
-        return candidates[:top_k]
-
-
-import os
+        meta["method"] = "cross_encoder"
+        meta["model_path"] = _RERANKER_MODEL_PATH
+        return candidates[:top_k], meta
+    except Exception as exc:
+        logger.warning(f"[Reranker] predict失败: {exc}; 使用RRF排序")
+        meta["reason"] = f"predict_error: {exc}"
+        return candidates[:top_k], meta
 
 
 class OnlineRetriever:
@@ -140,8 +208,9 @@ class OnlineRetriever:
 
         merged = rrf_merge(deduped_vector, deduped_bm25, top_k=top_k)
 
+        rerank_meta: dict[str, Any] = {"method": "none", "model_path": "", "reason": "disabled"}
         if enable_rerank and len(merged) > 1:
-            merged = rerank_cross_encoder(query, merged, top_k=rerank_top_k)
+            merged, rerank_meta = rerank_cross_encoder(query, merged, top_k=rerank_top_k)
 
         evidence_map: dict[str, str] = {}
         for item in merged:
@@ -157,6 +226,7 @@ class OnlineRetriever:
             "bm25_count": len(deduped_bm25),
             "merged_count": len(merged),
             "acl_filtered": user_acl_tags is not None,
+            "rerank_meta": rerank_meta,
         }
 
     def _acl_filter(

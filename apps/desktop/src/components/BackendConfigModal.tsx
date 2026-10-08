@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { DesktopAPI } from '../types'
 
 interface BackendConfigModalProps {
   visible: boolean
@@ -14,35 +13,17 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
   const [saved, setSaved] = useState(false)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
-  const desktopAPI = (window as Window & { desktopAPI?: DesktopAPI }).desktopAPI
-
-  // 初始化配置 - 使用 setTimeout 延迟执行以避免 ESLint 警告
   useEffect(() => {
     if (!visible) return
     
     const loadConfig = () => {
-      // 尝试从 IPC 读取配置
-      if (desktopAPI?.getBackendConfig) {
-        desktopAPI.getBackendConfig().then((config) => {
-          setApiBase(config.apiBase || 'http://127.0.0.1:8000')
-          setError('')
-          setSaved(false)
-          setTestStatus('idle')
-        }).catch(() => {
-          // 降级：从 localStorage 读取
-          const savedVal = localStorage.getItem('api_base')
-          setApiBase(savedVal || 'http://127.0.0.1:8000')
-        })
-      } else {
-        const savedVal = localStorage.getItem('api_base')
-        setApiBase(savedVal || 'http://127.0.0.1:8000')
-      }
+      const savedVal = localStorage.getItem('api_base')
+      setApiBase(savedVal || 'http://127.0.0.1:8000')
     }
     
-    // 延迟执行以避免同步 setState 警告
     const timer = setTimeout(loadConfig, 0)
     return () => clearTimeout(timer)
-  }, [visible, desktopAPI])
+  }, [visible])
 
   const validateUrl = (url: string): boolean => {
     try {
@@ -87,11 +68,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
     setLoading(true)
     setError('')
     try {
-      // 保存到 IPC（主进程）
-      if (desktopAPI?.setBackendConfig) {
-        await desktopAPI.setBackendConfig({ apiBase: apiBase.trim() })
-      }
-      // 备份到 localStorage
       localStorage.setItem('api_base', apiBase.trim())
       
       setSaved(true)
@@ -102,7 +78,7 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
     } finally {
       setLoading(false)
     }
-  }, [apiBase, desktopAPI, onConfigChange])
+  }, [apiBase, onConfigChange])
 
   const handleReload = () => {
     window.location.reload()
@@ -128,7 +104,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
         width: '480px',
         maxWidth: '90vw',
       }} onClick={e => e.stopPropagation()}>
-        {/* 头部 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '18px' }}>⚙️ 后端服务配置</h3>
           <button onClick={onClose} style={{
@@ -147,7 +122,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           }}>×</button>
         </div>
 
-        {/* 表单 */}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>
             API 基础地址
@@ -175,7 +149,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           </p>
         </div>
 
-        {/* 测试连接 */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
           <button
             onClick={handleTest}
@@ -197,7 +170,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           </button>
         </div>
 
-        {/* 错误提示 */}
         {error && (
           <div style={{
             background: 'rgba(239,68,68,0.1)',
@@ -211,7 +183,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           </div>
         )}
 
-        {/* 成功提示 */}
         {saved && (
           <div style={{
             background: 'rgba(34,197,94,0.1)',
@@ -225,7 +196,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           </div>
         )}
 
-        {/* 操作按钮 */}
         <div style={{ display: 'flex', gap: '10px' }}>
           <button
             onClick={onClose}
@@ -261,7 +231,6 @@ export function BackendConfigModal({ visible, onClose, onConfigChange }: Backend
           </button>
         </div>
 
-        {/* 刷新提示 */}
         {saved && (
           <div style={{ marginTop: '16px', textAlign: 'center' }}>
             <button

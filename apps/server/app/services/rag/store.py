@@ -67,16 +67,27 @@ class DualIndexStore:
         if self._embedding_model is None:
             try:
                 from sentence_transformers import SentenceTransformer
-                model_name = os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-                offline = os.getenv("RAG_EMBEDDING_OFFLINE", "false").lower() in ("true", "1", "yes")
-                if offline:
+                model_path = os.getenv(
+                    "RAG_EMBEDDING_MODEL_PATH",
+                    os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+                )
+                if os.path.isdir(model_path):
                     os.environ["TRANSFORMERS_OFFLINE"] = "1"
                     os.environ["HF_HUB_OFFLINE"] = "1"
-                self._embedding_model = SentenceTransformer(model_name)
-                logger.info(f"Embedding model loaded: {model_name}")
+                    self._embedding_model = SentenceTransformer(model_path)
+                    logger.info(f"[Embedding] loaded local model from {model_path} (offline-only)")
+                else:
+                    raise FileNotFoundError(
+                        f"Embedding model not found at {model_path}. "
+                        "Please download all-MiniLM-L6-v2 manually and set "
+                        "RAG_EMBEDDING_MODEL_PATH in .env. "
+                        "Run: python scripts/download_rag_models.py"
+                    )
             except ImportError:
                 logger.warning("sentence_transformers未安装, 向量检索不可用")
                 self._embedding_model = False
+            except FileNotFoundError:
+                raise
             except Exception as e:
                 logger.warning(f"Embedding model加载失败: {e}, 向量检索降级为BM25-only")
                 self._embedding_model = False

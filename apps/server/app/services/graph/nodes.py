@@ -8,8 +8,22 @@ import random
 import time
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from app.services.graph.state import AgentState, validate_task_plan_items
-from app.services.graph.metrics import NodeMetrics, inc_counter
+
+try:
+    from app.services.graph.metrics import NodeMetrics, inc_counter
+except ImportError:
+    class NodeMetrics:
+        def __init__(self, *a, **kw):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+    def inc_counter(*a, **kw):
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +112,7 @@ async def _mock_route_via_llm(raw_query: str) -> tuple[str, dict[str, Any], floa
     elif "结束" in q or "杀掉" in q:
         return "app_launch_agent_node", {"action": "kill", "name": "notepad.exe"}, 0.88
     elif "监控" in q or "cpu" in q or "内存" in q or "进程" in q:
-        return "system_monitor_agent_node", {"action": "overview"}, 0.85
+        return "system_clean_agent_node", {"action": "scan"}, 0.85
     elif "清理" in q or "优化" in q or "垃圾" in q:
         return "system_clean_agent_node", {"action": "scan"}, 0.85
     elif "搜代码" in q or "找代码" in q or "code search" in q or "代码搜索" in q:
@@ -117,6 +131,14 @@ async def _mock_route_via_llm(raw_query: str) -> tuple[str, dict[str, Any], floa
         return "store_agent_node", {"action": "search", "query": raw_query}, 0.85
     elif "生成" in q or "写" in q or "创建项目" in q or "写代码" in q:
         return "content_gen_agent_node", {"action": "generate", "task": raw_query}, 0.85
+    cultural_keywords = [
+        "recommend", "like", "taste", "music", "movie", "film", "restaurant",
+        "dining", "fashion", "travel", "artist", "brand", "book", "podcast",
+        "推荐", "喜欢", "品味", "音乐", "电影", "餐厅", "美食", "时尚", "旅行",
+        "歌手", "导演", "品牌", "书", "播客", "文化", "similar",
+    ]
+    if any(kw in q for kw in cultural_keywords):
+        return "qloo_cultural_recommend_node", {"action": "cultural_recommend", "query": raw_query}, 0.88
     return "clarification_node", {}, 0.35
 
 
@@ -357,10 +379,11 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
         raw_query = state.get("raw_query", "")
         intent = state.get("intent", "")
         route_target = state.get("route_target", "")
+        taste_context = state.get("qloo_taste_context", "")
         try:
             if LLM_MODE == "real":
                 from app.services.llm.client import plan_steps_llm
-                is_multi, steps = await plan_steps_llm(raw_query, intent, route_target)
+                is_multi, steps = await plan_steps_llm(raw_query, intent, route_target, taste_context=taste_context)
             else:
                 is_multi, steps = _mock_plan_steps(raw_query, intent, route_target)
             if is_multi and steps:
@@ -506,24 +529,7 @@ async def app_launch_agent_node(state: AgentState) -> dict[str, Any]:
 
 async def system_monitor_agent_node(state: AgentState) -> dict[str, Any]:
     with NodeMetrics("system_monitor_agent_node"):
-        agent_input = dict(state.get("agent_input", {}))
-        try:
-            action = agent_input.get("action", "overview")
-            tool_name = "system:info"
-            tool_args: dict[str, Any] = {"action": action}
-            if action == "top_processes":
-                tool_name = "process:top"
-                tool_args = {"max": agent_input.get("max_processes", 10)}
-            elif action == "disk_info":
-                tool_name = "disk:list"
-                tool_args = {}
-            elif action == "overview":
-                tool_name = "system:info"
-                tool_args = {}
-            return {"tool_name": tool_name, "tool_args": tool_args}
-        except Exception as e:
-            logger.exception(e)
-            return {"last_error": f"system_monitor_agent异常:{str(e)}", "error_type": "business"}
+        return {"last_error": "system_monitor_agent已移除，请使用system_clean_agent_node", "error_type": "business"}
 
 
 async def system_clean_agent_node(state: AgentState) -> dict[str, Any]:
@@ -786,7 +792,6 @@ async def algorithm_agent_node(state: AgentState) -> dict[str, Any]:
 
 AGENT_NODE_MAP = {
     "app_launch_agent_node": "app_launch_agent_node",
-    "system_monitor_agent_node": "system_monitor_agent_node",
     "system_clean_agent_node": "system_clean_agent_node",
     "browser_agent_node": "browser_agent_node",
     "store_agent_node": "store_agent_node",
@@ -1770,7 +1775,7 @@ async def task_plan_collect_node(state: AgentState) -> dict[str, Any]:
 
 
 _TASK_PLAN_ALLOWED_TARGETS = frozenset({
-    "app_launch_agent_node", "system_monitor_agent_node", "system_clean_agent_node",
+    "app_launch_agent_node", "system_clean_agent_node",
     "browser_agent_node", "store_agent_node", "content_gen_agent_node",
     "image_agent_node", "algorithm_agent_node", "rag_retrieve_node",
     "code_search_node", "memory_persist_node", "clarification_node",
@@ -1942,3 +1947,420 @@ def route_after_hitl(state: AgentState) -> str:
     if hitl_decision == "reject" or not task_plan_enabled:
         return "memory_persist_node"
     return "hitl_approval_node"
+
+
+async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
+    with NodeMetrics("qloo_cultural_recommend_node"):
+        try:
+            from app.services.qloo.client import get_qloo_client
+            from app.services.qloo.taste import (
+                search_cultural_entities,
+                get_taste_based_recommendations,
+                get_cross_domain_discovery,
+                build_cultural_context_for_llm,
+            )
+            client = get_qloo_client()
+            if not client.enabled:
+                return {"qloo_enabled": False, "qloo_taste_context": ""}
+            raw_query = state.get("raw_query", "")
+            entities = state.get("entities", {})
+            taste_entities = state.get("taste_entities", [])
+            seed_names = entities.get("cultural_likes", []) if isinstance(entities.get("cultural_likes"), list) else []
+            target_domain = entities.get("target_domain", "")
+            if not seed_names:
+                seed_names = [raw_query]
+            seed_entity_ids: list[str] = []
+            if taste_entities:
+                for te in taste_entities:
+                    eid = te.get("entity_id") or te.get("id", "")
+                    if eid:
+                        seed_entity_ids.append(eid)
+                    name = te.get("name", "")
+                    if name and name not in seed_names:
+                        seed_names.append(name)
+            for name in seed_names:
+                if any(name in (te.get("name", "") for te in taste_entities)):
+                    continue
+                results = await search_cultural_entities(client, name, domain=target_domain or None, limit=1)
+                if results:
+                    eid = results[0].get("id", "")
+                    if eid:
+                        seed_entity_ids.append(eid)
+            if not seed_entity_ids:
+                return {
+                    "qloo_enabled": True,
+                    "qloo_seed_entity_ids": [],
+                    "qloo_seed_names": seed_names,
+                    "qloo_target_domain": target_domain,
+                    "qloo_recommendations": [],
+                    "qloo_cross_domain_results": {},
+                    "qloo_taste_context": "",
+                }
+            rec_result = await get_taste_based_recommendations(
+                client, seed_entity_ids, target_domain=target_domain or None, limit=10,
+            )
+            cross_result = await get_cross_domain_discovery(
+                client, seed_entity_ids, per_domain_limit=5,
+            )
+            taste_context = await build_cultural_context_for_llm(
+                client, seed_names, target_domain=target_domain or None, limit=8,
+            )
+            return {
+                "qloo_enabled": True,
+                "qloo_seed_entity_ids": seed_entity_ids,
+                "qloo_seed_names": seed_names,
+                "qloo_target_domain": target_domain,
+                "qloo_recommendations": rec_result.get("recommendations", []),
+                "qloo_cross_domain_results": cross_result,
+                "qloo_taste_context": taste_context,
+            }
+        except Exception as e:
+            logger.exception(e)
+            return {"last_error": f"qloo_cultural_recommend异常:{str(e)}", "error_type": "business", "qloo_enabled": False}
+
+
+def route_after_qloo(state: AgentState) -> str:
+    if state.get("last_error"):
+        return "error_fallback_node"
+    return "taste_health_filter_node"
+
+
+# ===== Senior Dining Sub-Graph Nodes =====
+
+async def taste_context_extract_node(state: AgentState) -> dict[str, Any]:
+    with NodeMetrics("taste_context_extract_node"):
+        try:
+            from app.services.tools.executor import _exec_qloo_taste_context
+
+            raw_query = state.get("raw_query", "")
+            entities = state.get("entities", {})
+            likes = entities.get("cultural_likes", []) if isinstance(entities.get("cultural_likes"), list) else []
+            if not likes:
+                likes = [w for w in raw_query.replace("，", ",").replace("、", ",").split(",") if w.strip()][:5]
+            result = await _exec_qloo_taste_context({"likes": likes})
+            data = result.get("data", result)
+            return {
+                "taste_entities": data.get("taste_entities", []),
+                "taste_data_source": data.get("data_source", "none"),
+                "qloo_enabled": data.get("qloo_enabled", False),
+                "qloo_taste_context": data.get("qloo_context", ""),
+            }
+        except Exception as e:
+            logger.exception(e)
+            return {"taste_entities": [], "taste_data_source": "error", "last_error": f"taste_context_extract异常:{str(e)}"}
+
+
+class HealthConstraintOutput(BaseModel):
+    low_sugar: bool = Field(default=False, description="需要低糖/无糖饮食")
+    low_sodium: bool = Field(default=False, description="需要低盐/低钠饮食")
+    soft_chewable: bool = Field(default=False, description="需要软食/易咀嚼")
+    medications: list[str] = Field(default_factory=list, description="当前用药列表，如降压药、降糖药、抗凝药")
+    dietary_notes: list[str] = Field(default_factory=list, description="其他膳食注意事项，如过敏、忌口")
+    reasoning: str = Field(default="", description="提取推理过程")
+
+
+async def health_constraint_extract_node(state: AgentState) -> dict[str, Any]:
+    with NodeMetrics("health_constraint_extract_node"):
+        try:
+            raw_query = state.get("raw_query", "")
+            existing = state.get("health_constraints", {})
+            if existing and existing.get("_source") == "explicit":
+                return {}
+            prompt = (
+                f"用户请求：{raw_query}\n\n"
+                f"从上述对话中提取老年膳食健康约束信息。\n"
+                f"如果没有明确提到健康约束，所有布尔字段返回 False，medications 和 dietary_notes 返回空列表。\n"
+                f"常见关键词映射：\n"
+                f"  - 低糖/无糖/控糖/糖尿病 → low_sugar=True\n"
+                f"  - 低盐/低钠/少盐/高血压/降压 → low_sodium=True\n"
+                f"  - 软食/易咀嚼/牙口不好/流食 → soft_chewable=True\n"
+                f"  - 降压药/血压药 → medications含'antihypertensive'\n"
+                f"  - 降糖药/胰岛素 → medications含'antidiabetic'\n"
+                f"  - 抗凝药/华法林 → medications含'anticoagulant'\n"
+                f"schema {HealthConstraintOutput.model_json_schema()}"
+            )
+            from app.services.llm.client import llm_parse_with_retry
+            if LLM_MODE == "real":
+                parsed, _ = await llm_parse_with_retry(prompt, HealthConstraintOutput)
+            else:
+                parsed = _mock_health_constraints(raw_query)
+            if parsed is None:
+                return {"health_constraints": {}, "health_constraint_labels": []}
+            constraints = parsed.model_dump()
+            constraints["_source"] = "llm_extracted"
+            labels = []
+            if constraints.get("low_sugar"):
+                labels.append("low_sugar")
+            if constraints.get("low_sodium"):
+                labels.append("low_sodium")
+            if constraints.get("soft_chewable"):
+                labels.append("soft_chewable")
+            if constraints.get("medications"):
+                labels.append("medication_aware")
+            return {"health_constraints": constraints, "health_constraint_labels": labels}
+        except Exception as e:
+            logger.exception(e)
+            return {"health_constraints": {}, "health_constraint_labels": [], "last_error": f"health_constraint_extract异常:{str(e)}"}
+
+
+def _mock_health_constraints(raw_query: str) -> HealthConstraintOutput:
+    q = raw_query.lower()
+    low_sugar = any(k in q for k in ("低糖", "无糖", "控糖", "糖尿病", "diabetes", "sugar"))
+    low_sodium = any(k in q for k in ("低盐", "低钠", "少盐", "高血压", "血压", "hypertension", "sodium"))
+    soft = any(k in q for k in ("软食", "易咀嚼", "牙口", "流食", "soft", "chew", "dentition", "teeth", "gum"))
+    meds: list[str] = []
+    if any(k in q for k in ("降压", "血压药")):
+        meds.append("antihypertensive")
+    if any(k in q for k in ("降糖", "胰岛素")):
+        meds.append("antidiabetic")
+    if any(k in q for k in ("抗凝", "华法林")):
+        meds.append("anticoagulant")
+    return HealthConstraintOutput(low_sugar=low_sugar, low_sodium=low_sodium, soft_chewable=soft, medications=meds)
+
+
+def route_after_taste_extract(state: AgentState) -> str:
+    if state.get("last_error"):
+        return "error_fallback_node"
+    return "health_constraint_extract_node"
+
+
+def route_after_health_extract(state: AgentState) -> str:
+    if state.get("last_error"):
+        return "error_fallback_node"
+    return "qloo_cultural_recommend_node"
+
+
+async def taste_health_filter_node(state: AgentState) -> dict[str, Any]:
+    with NodeMetrics("taste_health_filter_node"):
+        try:
+            from app.services.qloo.tastecare import (
+                _annotate_health,
+                _annotate_medication,
+                _build_constraint_labels,
+                _sort_candidates,
+                MEDICATION_DISCLAIMER,
+            )
+
+            recommendations = state.get("qloo_recommendations", [])
+            health_constraints = state.get("health_constraints", {})
+            taste_entities = state.get("taste_entities", [])
+
+            if not recommendations:
+                return {
+                    "filtered_recommendations": [],
+                    "filter_summary": {"total": 0, "passed": 0, "flagged": 0, "active_labels": []},
+                }
+
+            active_labels = _build_constraint_labels(health_constraints)
+            medications = health_constraints.get("medications", [])
+            if isinstance(medications, str):
+                medications = [medications]
+
+            passed_count = 0
+            flagged_count = 0
+            filtered: list[dict[str, Any]] = []
+
+            for rec in recommendations:
+                entity = dict(rec)
+                health = _annotate_health(entity, active_labels)
+                med = _annotate_medication(entity, medications)
+                entity["health"] = {
+                    "passes": health["passes"] and med["passes"],
+                    "labels": health["labels"] + med["labels"],
+                    "warnings": health["warnings"] + med["warnings"],
+                }
+                if entity["health"]["passes"]:
+                    passed_count += 1
+                else:
+                    flagged_count += 1
+                filtered.append(entity)
+
+            filtered = _sort_candidates(filtered)
+
+            taste_names = [t.get("name", "") for t in taste_entities if t.get("name")]
+
+            summary = {
+                "total": len(filtered),
+                "passed": passed_count,
+                "flagged": flagged_count,
+                "active_labels": active_labels,
+                "medication_aware": bool(medications),
+                "taste_anchors": taste_names[:5],
+                "data_source": state.get("taste_data_source", "none"),
+            }
+
+            return {
+                "filtered_recommendations": filtered,
+                "filter_summary": summary,
+            }
+        except Exception as e:
+            logger.exception(e)
+            return {
+                "filtered_recommendations": state.get("qloo_recommendations", []),
+                "filter_summary": {"error": str(e)},
+                "last_error": f"taste_health_filter异常:{str(e)}",
+            }
+
+
+def _build_constraint_labels_gn(config_section_constraints: dict[str, Any]) -> list[str]:
+    """Local mirror of tastecare._build_constraint_labels used by answer_generation_node."""
+    out: list[str] = []
+    if config_section_constraints.get("low_sodium"):
+        out.append("low_sodium")
+    if config_section_constraints.get("low_sugar"):
+        out.append("low_sugar")
+    if config_section_constraints.get("soft_chewable"):
+        out.append("soft_chewable")
+    return out
+
+
+def _recommendation_rationale(
+    rec: dict[str, Any],
+    taste_anchors: list[str],
+    active_labels: list[str],
+) -> dict[str, Any]:
+    """Build the two-part (cultural taste match + safety validation) rationale for one meal.
+
+    Pure/deterministic — runnable without a live Qloo key. The cultural-match line is
+    grounded in the actual taste anchors collected by `taste_context_extract_node` and
+    the Qloo `why`/description when present; the safety line is grounded in the real
+    health annotation computed by `taste_health_filter_node`. Nothing is invented.
+    """
+    name = rec.get("name", "")
+    desc = rec.get("description") or ""
+    health = rec.get("health") or {}
+
+    if taste_anchors:
+        cultural = (
+            f"Matches your cultural tastes ({', '.join(taste_anchors[:3])}) "
+            f"as grounded in the Qloo taste graph."
+        )
+    else:
+        cultural = "Grounded in the Qloo cultural taste graph for your profile."
+    if desc:
+        cultural += f" {desc.strip()}"
+    if rec.get("fit") is not None:
+        try:
+            pct = round(float(rec["fit"]) * 100)
+            cultural += f" Cultural-match score {pct}%."
+        except (TypeError, ValueError):
+            pass
+
+    labels = health.get("labels", [])
+    warnings = health.get("warnings", [])
+    passes = bool(health.get("passes"))
+    if active_labels:
+        safety = (
+            f"Checked against your active constraints ({', '.join(active_labels)}) — "
+            + ("all passed." if passes else "see warnings below.")
+        )
+    else:
+        safety = "No active health constraints applied."
+    if warnings:
+        safety += " Warnings: " + " ".join(warnings) + "."
+
+    return {
+        "name": name,
+        "cultural_match": cultural,
+        "safety_validation": safety,
+        "passes": passes,
+    }
+def route_after_taste_health_filter(state: AgentState) -> str:
+    if state.get("last_error"):
+        return "error_fallback_node"
+    return "answer_generation_node"
+async def answer_generation_node(state: AgentState) -> dict[str, Any]:
+    """A1: generate the final recommendation answer from the filtered candidates.
+
+    Consumes `filtered_recommendations` (produced by `taste_health_filter_node`) +
+    `taste_entities` + `health_constraints`, and emits both a structured
+    `recommendation_rationale` list (one per meal) and a plain-language `final_answer`
+    for the agent to present. Mirrors the two-part rationale requirement so the UI can
+    render exactly "✨ Cultural match" + "🛡️ Safety check" per card via the `rationale`.
+    """
+    with NodeMetrics("answer_generation_node"):
+        try:
+            try:
+                from app.services.observability.langfuse_client import (
+                    langfuse,
+                    create_langfuse_span,
+                )
+            except ImportError:
+                langfuse = None
+                create_langfuse_span = None
+
+            filtered = state.get("filtered_recommendations", []) or []
+            taste_entities = state.get("taste_entities", []) or []
+            health_constraints = state.get("health_constraints", {}) or {}
+            labels = state.get("health_constraint_labels", []) or []
+            filter_summary = state.get("filter_summary", {}) or {}
+
+            active_labels = (
+                list(labels)
+                or filter_summary.get("active_labels", [])
+                or _build_constraint_labels_gn(health_constraints)
+            )
+            taste_anchors = [
+                t.get("name", "")
+                for t in taste_entities
+                if isinstance(t, dict) and t.get("name")
+            ][:5]
+
+            rationale = [
+                _recommendation_rationale(r, taste_anchors, active_labels)
+                for r in filtered
+            ]
+
+            if not rationale:
+                final_answer = (
+                    "I could not find dining options that both match your cultural "
+                    "tastes and pass all of your health constraints. "
+                    "Try broadening your tastes or relaxing a constraint."
+                )
+            else:
+                top = rationale[0]
+                passed = sum(1 for r in rationale if r["passes"])
+                final_answer = (
+                    f"Top pick for you: {top['name']}.\n\n"
+                    f"✨ Cultural match — {top['cultural_match'].strip()}\n"
+                    f"🛡️ Safety validation — {top['safety_validation'].strip()}\n\n"
+                    f"Of {len(rationale)} recommendations screened, {passed} fit all your "
+                    f"active constraints. Full list: "
+                    + ", ".join(r["name"] for r in rationale[:6])
+                    + "."
+                )
+
+            if create_langfuse_span and langfuse:
+                span = create_langfuse_span(
+                    langfuse,
+                    "answer_generation_node",
+                    input_data={
+                        "candidate_count": len(filtered),
+                        "taste_anchors": taste_anchors,
+                        "active_labels": active_labels,
+                        "data_source": state.get("taste_data_source", "none"),
+                    },
+                    metadata={
+                        "rationale_count": len(rationale),
+                        "passed_count": sum(1 for r in rationale if r["passes"]),
+                    },
+                )
+                span.end()
+
+            return {
+                "answer_generation": {
+                    "final_answer": final_answer,
+                    "rationale": rationale,
+                    "taste_anchors": taste_anchors,
+                    "active_labels": active_labels,
+                },
+                "final_answer": final_answer,
+            }
+        except Exception as e:
+            logger.exception(e)
+            return {
+                "final_answer": state.get("qloo_taste_context", "")
+                or "Unable to generate a final recommendation.",
+                "last_error": f"answer_generation异常:{str(e)}",
+                "error_type": "business",
+            }

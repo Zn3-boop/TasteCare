@@ -1,9 +1,5 @@
-// App.tsx 相关类型定义
+export type AppView = 'tasks' | 'conversation' | 'culture' | 'tastecare' | 'execution' | 'files' | 'providers'
 
-// 视图类型
-export type AppView = 'tasks' | 'conversation' | 'execution' | 'files' | 'providers'
-
-// 后端命令响应类型（用于解析 commands 数组）
 export interface BackendCommand {
   tool: string
   type?: string
@@ -15,7 +11,6 @@ export interface BackendCommand {
   recommended?: boolean
 }
 
-// 执行结果数据类型
 export interface ProcessTopData {
   processes: { name: string; pid: number; mem: number }[]
 }
@@ -35,7 +30,6 @@ export interface SystemInfoData {
   totalMem?: number
 }
 
-// Agent 分析结果类型
 export interface AgentAnalysis {
   analysis: string
   thinking: string
@@ -43,7 +37,6 @@ export interface AgentAnalysis {
   riskWarning: string
 }
 
-// Badge 计数类型
 export interface BadgeCounts {
   tasks: number
   conversation: number
@@ -51,11 +44,9 @@ export interface BadgeCounts {
   files: number
 }
 
-// App Context 类型
 export interface AppContextState {
   apiBase: string
   setApiBase: (base: string) => void
-  desktopAPI: unknown
   preloadStatus: string
   activeView: AppView
   setActiveView: (view: AppView) => void
@@ -70,7 +61,6 @@ export interface AppContextState {
   isPaused: boolean
   error: string
   agentAnalysis: AgentAnalysis | null
-  metrics: unknown
   cloudAudioStatus: string
   handleAnalyzeProblem: unknown
   handleExecuteSelected: unknown

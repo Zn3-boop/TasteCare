@@ -248,11 +248,28 @@ class SemanticEngine:
         if self._model is None:
             try:
                 from sentence_transformers import SentenceTransformer
-                model_name = os.getenv("CODE_SEARCH_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-                self._model = SentenceTransformer(model_name)
-                logger.info(f"CodeSearch SemanticEngine: loaded {model_name}")
+                model_path = os.getenv(
+                    "CODE_SEARCH_EMBEDDING_MODEL",
+                    os.getenv("RAG_EMBEDDING_MODEL_PATH", "all-MiniLM-L6-v2"),
+                )
+                if os.path.isdir(model_path):
+                    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+                    os.environ["HF_HUB_OFFLINE"] = "1"
+                    self._model = SentenceTransformer(model_path)
+                    logger.info(f"CodeSearch SemanticEngine: loaded local model from {model_path}")
+                else:
+                    raise FileNotFoundError(
+                        f"Embedding model not found at {model_path}. "
+                        "Please download all-MiniLM-L6-v2 manually and set "
+                        "RAG_EMBEDDING_MODEL_PATH in .env."
+                    )
             except ImportError:
                 logger.warning("sentence_transformers不可用, 语义搜索降级")
+                self._model = False
+            except FileNotFoundError:
+                raise
+            except Exception as e:
+                logger.warning(f"Embedding model加载失败: {e}, 语义搜索降级")
                 self._model = False
         return self._model if self._model is not False else None
 

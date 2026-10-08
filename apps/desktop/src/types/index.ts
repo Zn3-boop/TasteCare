@@ -1,77 +1,3 @@
-// 告警相关类型
-export type AlertLevel = 'warning' | 'critical'
-export type AlertType = 'cpu' | 'memory' | 'disk'
-
-// 自动化事件类型
-export interface AutomationEvent {
-  id: string
-  timestamp: string
-  source: 'agent' | 'fallback'
-  alert: {
-    level: AlertLevel
-    type: AlertType
-    title: string
-    message: string
-  }
-  result: {
-    summary: string
-    action: string
-    priority: string
-  }
-  executionResults?: ActionExecutionResult[]
-  speechText: string
-}
-
-// 系统指标类型
-export interface SystemMetrics {
-  timestamp: string
-  hostname: string
-  platform: string
-  uptimeSeconds: number
-  cpu: {
-    usagePercent: number
-    cores: number
-    model: string
-    loadAverage: number[]
-  }
-  memory: {
-    total: number
-    free: number
-    used: number
-    usagePercent: number
-    totalLabel: string
-    usedLabel: string
-    freeLabel: string
-  }
-  disk: {
-    readBytesPerSec: number
-    writeBytesPerSec: number
-    readLabel: string
-    writeLabel: string
-  }
-  network: {
-    bytesSent: number
-    bytesRecv: number
-    bytesSentPerSec: number
-    bytesRecvPerSec: number
-    sentLabel: string
-    recvLabel: string
-  }
-  processes?: {
-    pid: number
-    name: string
-    cpuPercent: number
-    memoryPercent: number
-  }[]
-  alerts: {
-    type: AlertType
-    level: AlertLevel
-    title: string
-    message: string
-  }[]
-  automationEvents?: AutomationEvent[]
-}
-
 // 动作命令类型
 export interface ActionCommand {
   id: string
@@ -158,7 +84,6 @@ export interface VoiceCommandResponse {
   }
   commands?: ActionCommand[]
   command_execution_mode?: string
-  // 🆕 Agent 分析字段
   analysis?: string
   thinking?: string
   advice?: string
@@ -220,90 +145,10 @@ export interface ActionLogEntry {
   results: ActionExecutionResult[]
 }
 
-// 桌面API类型
-export interface WindowPreferences {
-  alwaysOnTop: boolean
-  miniMode: boolean
-  launchAtLogin: boolean
-  minimizeToTray?: boolean
-  visible?: boolean
-}
-
-export interface DesktopAPI {
-  ping?: () => string
-
-  // 系统监控
-  getSystemMetrics?: () => Promise<SystemMetrics>
-  getAutomationEvents?: () => Promise<AutomationEvent[]>
-  onAutomationEvent?: (callback: (event: AutomationEvent) => void) => () => void
-
-  // 动作执行
-  executeActions?: (actions: ActionCommand[]) => Promise<ActionExecutionResult[]>
-  pauseActions?: () => Promise<{ status: string }>
-  resumeActions?: () => Promise<{ status: string }>
-  getActionLog?: (limit?: number) => Promise<ActionLogEntry[]>
-  onPendingActions?: (callback: (commands: PendingActionCommand[]) => void) => () => void
-  /** 获取 pendingActionsQueue 中的待确认操作 */
-  getPendingActions?: () => Promise<PendingActionCommand[]>
-  /** 从 pendingActionsQueue 中移除已确认的操作 */
-  clearPendingActions?: (ids: string[]) => Promise<void>
-  /** 将危险操作添加到 pendingActionsQueue */
-  addPendingActions?: (actions: PendingActionCommand[]) => Promise<void>
-  /** 监听日志更新事件 */
-  onLogUpdated?: (callback: () => void) => () => void
-  /** 监听执行日志更新事件（别名） */
-  onActionLogUpdated?: (callback: () => void) => () => void
-
-  // 文件操作
-  listFileRoots?: () => Promise<string[]>
-  listDirectory?: (path: string) => Promise<DirectoryListing>
-  deletePath?: (path: string) => Promise<{ path: string; deleted: boolean; type: 'file' | 'directory' }>
-  openPath?: (path: string) => Promise<{ path: string; opened: boolean }>
-
-  // 窗口控制
-  getWindowPreferences?: () => Promise<WindowPreferences>
-  toggleWindowVisibility?: () => Promise<{ visible: boolean }>
-  toggleAlwaysOnTop?: () => Promise<WindowPreferences>
-  toggleMiniMode?: () => Promise<WindowPreferences>
-  setLaunchAtLogin?: (enabled: boolean) => Promise<WindowPreferences>
-
-  // 后端配置
-  getBackendConfig?: () => Promise<BackendConfig>
-  setBackendConfig?: (config: Partial<BackendConfig>) => Promise<BackendConfig>
-}
-
 // 后端配置类型
 export interface BackendConfig {
   apiBase: string
 }
-
-// IPC 通道名称常量
-export const IPC_CHANNELS = {
-  // 系统监控
-  SYSTEM_METRICS_GET: 'system:metrics:get',
-  AUTOMATION_EVENTS_LIST: 'automation:events:list',
-  AUTOMATION_EVENT: 'automation:event',
-  
-  // 文件操作
-  FILE_ROOTS_LIST: 'system:file-roots:list',
-  FILE_LIST: 'system:file:list',
-  FILE_DELETE: 'system:file:delete',
-  FILE_OPEN: 'system:file:open',
-  
-  // 窗口控制
-  WINDOW_PREFS_GET: 'window:preferences:get',
-  WINDOW_VISIBILITY_TOGGLE: 'window:visibility:toggle',
-  WINDOW_ALWAYS_ON_TOP_TOGGLE: 'window:always-on-top:toggle',
-  WINDOW_MINI_MODE_TOGGLE: 'window:mini-mode:toggle',
-  WINDOW_LAUNCH_AT_LOGIN_SET: 'window:launch-at-login:set',
-  
-  // 动作执行
-  ACTION_EXECUTE: 'action:execute',
-  ACTION_PAUSE: 'action:pause',
-  ACTION_RESUME: 'action:resume',
-  ACTION_LOG: 'action:log',
-  PENDING_ACTIONS: 'pending-actions',
-} as const
 
 // 语音设置类型
 export interface SpeechSettings {
@@ -384,7 +229,6 @@ export type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance
 
 // 浏览器窗口扩展类型
 export type BrowserSpeechWindow = Window & {
-  desktopAPI?: DesktopAPI
   webkitSpeechRecognition?: SpeechRecognitionConstructor
   SpeechRecognition?: SpeechRecognitionConstructor
 }

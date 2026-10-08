@@ -70,6 +70,8 @@ def route_after_llm(state: AgentState) -> str:
         return "rag_retrieve_node"
     if route_target == "code_search_node":
         return "code_search_node"
+    if route_target == "qloo_cultural_recommend_node":
+        return "taste_context_extract_node"
     return "planning_node"
 
 
@@ -190,7 +192,6 @@ def build_agent_graph(
         route_after_planning,
         route_after_step_execute,
         app_launch_agent_node,
-        system_monitor_agent_node,
         system_clean_agent_node,
         browser_agent_node,
         store_agent_node,
@@ -220,6 +221,15 @@ def build_agent_graph(
         hitl_approval_node,
         route_after_governor,
         route_after_hitl,
+        qloo_cultural_recommend_node,
+        route_after_qloo,
+        taste_health_filter_node,
+        route_after_taste_health_filter,
+        taste_context_extract_node,
+        health_constraint_extract_node,
+        route_after_taste_extract,
+        route_after_health_extract,
+        answer_generation_node,
     )
     from app.services.graph.checkers import fast_brain_node, guard_pre_check_node
 
@@ -252,7 +262,6 @@ def build_agent_graph(
     builder.add_node("step_loop_node", step_loop_node)
     builder.add_node("agent_dispatch_node", agent_dispatch_node)
     builder.add_node("app_launch_agent_node", app_launch_agent_node)
-    builder.add_node("system_monitor_agent_node", system_monitor_agent_node)
     builder.add_node("system_clean_agent_node", system_clean_agent_node)
     builder.add_node("browser_agent_node", browser_agent_node)
     builder.add_node("store_agent_node", store_agent_node)
@@ -275,6 +284,11 @@ def build_agent_graph(
     builder.add_node("task_plan_collect_node", task_plan_collect_node)
     builder.add_node("governor_node", governor_node)
     builder.add_node("hitl_approval_node", hitl_approval_node)
+    builder.add_node("qloo_cultural_recommend_node", qloo_cultural_recommend_node)
+    builder.add_node("taste_context_extract_node", taste_context_extract_node)
+    builder.add_node("health_constraint_extract_node", health_constraint_extract_node)
+    builder.add_node("taste_health_filter_node", taste_health_filter_node)
+    builder.add_node("answer_generation_node", answer_generation_node)
 
     transient_retry = None
     if RetryPolicy is not None:
@@ -297,8 +311,25 @@ def build_agent_graph(
     builder.add_edge("extract_entities", "route_llm")
     builder.add_conditional_edges(
         "route_llm", route_after_llm,
-        {"clarification_node": "clarification_node", "planning_node": "planning_node", "rag_retrieve_node": "rag_retrieve_node", "code_search_node": "code_search_node"},
+        {"clarification_node": "clarification_node", "planning_node": "planning_node", "rag_retrieve_node": "rag_retrieve_node", "code_search_node": "code_search_node", "taste_context_extract_node": "taste_context_extract_node"},
     )
+    builder.add_conditional_edges(
+        "taste_context_extract_node", route_after_taste_extract,
+        {"health_constraint_extract_node": "health_constraint_extract_node", "error_fallback_node": "error_fallback_node"},
+    )
+    builder.add_conditional_edges(
+        "health_constraint_extract_node", route_after_health_extract,
+        {"qloo_cultural_recommend_node": "qloo_cultural_recommend_node", "error_fallback_node": "error_fallback_node"},
+    )
+    builder.add_conditional_edges(
+        "qloo_cultural_recommend_node", route_after_qloo,
+        {"taste_health_filter_node": "taste_health_filter_node", "error_fallback_node": "error_fallback_node"},
+    )
+    builder.add_conditional_edges(
+        "taste_health_filter_node", route_after_taste_health_filter,
+        {"answer_generation_node": "answer_generation_node", "error_fallback_node": "error_fallback_node"},
+    )
+    builder.add_edge("answer_generation_node", "planning_node")
     builder.add_conditional_edges(
         "rag_retrieve_node", route_after_agent,
         {"error_fallback_node": "error_fallback_node", "tool_execute_node": "tool_execute_node", "memory_persist_node": "memory_persist_node"},
@@ -315,7 +346,6 @@ def build_agent_graph(
         "task_planner_node", route_after_task_plan,
         {
             "app_launch_agent_node": "app_launch_agent_node",
-            "system_monitor_agent_node": "system_monitor_agent_node",
             "system_clean_agent_node": "system_clean_agent_node",
             "browser_agent_node": "browser_agent_node",
             "store_agent_node": "store_agent_node",
@@ -329,6 +359,7 @@ def build_agent_graph(
             "task_plan_collect_node": "task_plan_collect_node",
             "clarification_node": "clarification_node",
             "post_validate_gate": "post_validate_gate",
+            "qloo_cultural_recommend_node": "qloo_cultural_recommend_node",
         },
     )
     builder.add_conditional_edges(
@@ -341,7 +372,6 @@ def build_agent_graph(
         "agent_dispatch_node", route_after_dispatch,
         {
             "app_launch_agent_node": "app_launch_agent_node",
-            "system_monitor_agent_node": "system_monitor_agent_node",
             "system_clean_agent_node": "system_clean_agent_node",
             "browser_agent_node": "browser_agent_node",
             "store_agent_node": "store_agent_node",
@@ -354,10 +384,6 @@ def build_agent_graph(
     )
     builder.add_conditional_edges(
         "app_launch_agent_node", route_after_agent,
-        {"error_fallback_node": "error_fallback_node", "tool_execute_node": "tool_execute_node", "memory_persist_node": "memory_persist_node"},
-    )
-    builder.add_conditional_edges(
-        "system_monitor_agent_node", route_after_agent,
         {"error_fallback_node": "error_fallback_node", "tool_execute_node": "tool_execute_node", "memory_persist_node": "memory_persist_node"},
     )
     builder.add_conditional_edges(

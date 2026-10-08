@@ -3,8 +3,7 @@ import type { ConversationRecord } from '../types'
 import SessionHistory from './SearchHistory'
 
 interface ConversationPanelProps {
-  onAnalyzeProblem: (text: string) => void
-  _analyzeLoading: boolean  // kept for interface compatibility
+  onAnalyzeProblem: (text: string) => Promise<void>
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
@@ -18,7 +17,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export function ConversationPanel({ onAnalyzeProblem, _analyzeLoading }: ConversationPanelProps) {
+export function ConversationPanel({ onAnalyzeProblem: _onAnalyzeProblem }: ConversationPanelProps) {
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null)
   const [status, setStatus] = useState('初始化中...')
   const [loading, setLoading] = useState(true)
@@ -43,9 +42,6 @@ export function ConversationPanel({ onAnalyzeProblem, _analyzeLoading }: Convers
     }
     void load()
   }, [])
-
-  // Keep analyze callback for future use when re-adding input
-  void onAnalyzeProblem
 
   return (
     <section className="panel-card">

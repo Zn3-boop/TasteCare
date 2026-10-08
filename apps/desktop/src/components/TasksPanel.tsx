@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
-import type { ActionCommand, ActionExecutionResult, SystemMetrics } from '../types'
+import type { ActionCommand, ActionExecutionResult } from '../types'
+import type { ToastItem } from '../hooks/useAppContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -12,18 +13,17 @@ interface AgentAnalysis {
 }
 
 interface TasksPanelProps {
-  metrics: SystemMetrics | null
   suggestedCommands: ActionCommand[]
   setSuggestedCommands: React.Dispatch<React.SetStateAction<ActionCommand[]>>
   isExecuting: boolean
   onExecuteSelected: (commands: ActionCommand[]) => Promise<void>
   executionResults: ActionExecutionResult[]
-  onAnalyzeProblem?: (text: string) => void
+  onAnalyzeProblem?: (text: string) => Promise<void>
   agentAnalysis?: AgentAnalysis | null
+  addToast?: (toast: Omit<ToastItem, 'id'>) => void
 }
 
 export function TasksPanel({
-  metrics,
   suggestedCommands,
   setSuggestedCommands,
   isExecuting,
@@ -31,10 +31,15 @@ export function TasksPanel({
   executionResults,
   onAnalyzeProblem,
   agentAnalysis,
+  addToast,
 }: TasksPanelProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [analyzeText, setAnalyzeText] = useState('帮我看看当前系统状态，给出处置建议')
   const [showThinking, setShowThinking] = useState(false)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrResult, setOcrResult] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [confirmQueue, setConfirmQueue] = useState<Array<{ id: string; message: string; onConfirm: () => void; onReject: () => void }>>([])
   
   const validCommands = useMemo(() => 
     suggestedCommands.filter(cmd => {
@@ -145,16 +150,61 @@ export function TasksPanel({
   const handleExecute = useCallback(() => {
     const selected = validCommands.filter(c => activeSelectedIds.has(c.id))
     if (selected.length === 0) return
+
+    const safeCommands = selected.filter(c => c.type !== 'destructive' && c.risk !== 'high' && (c.confidence || 0.8) >= 0.7)
+    const riskyCommands = selected.filter(c => c.type === 'destructive' || c.risk === 'high' || (c.confidence || 0.8) < 0.7)
+
+    if (riskyCommands.length > 0) {
+      const names = riskyCommands.map(c => c.tool).join(', ')
+      setConfirmQueue(prev => [...prev, {
+        id: `confirm-${Date.now()}`,
+        message: `包含 ${riskyCommands.length} 个需确认操作: ${names}，是否执行？`,
+        onConfirm: () => {
+          void onExecuteSelected(selected)
+          setConfirmQueue(prev => prev.slice(1))
+        },
+        onReject: () => {
+          if (safeCommands.length > 0) {
+            void onExecuteSelected(safeCommands)
+            addToast?.({ type: 'info', message: `已跳过危险操作，执行 ${safeCommands.length} 个安全操作` })
+          }
+          setConfirmQueue(prev => prev.slice(1))
+        },
+      }])
+      return
+    }
+
     void onExecuteSelected(selected)
-  }, [activeSelectedIds, validCommands, onExecuteSelected])
+  }, [activeSelectedIds, validCommands, onExecuteSelected, addToast])
+
+  const handleOcrUpload = useCallback(async (file: File) => {
+    setOcrLoading(true)
+    setOcrResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`${API_BASE}/ocr/recognize`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) throw new Error(`OCR请求失败: ${res.status}`)
+      const data = await res.json()
+      const text = data.text || data.result?.text || ''
+      if (text) {
+        setOcrResult(text)
+        addToast?.({ type: 'success', message: `OCR识别成功，提取 ${text.length} 字` })
+        setAnalyzeText(prev => prev + (prev ? '\n' : '') + `[截图内容] ${text.slice(0, 500)}`)
+      } else {
+        addToast?.({ type: 'warning', message: 'OCR未识别到文字内容' })
+      }
+    } catch (e) {
+      addToast?.({ type: 'error', message: `OCR失败: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setOcrLoading(false)
+    }
+  }, [addToast])
 
   const getResultForCommand = (id: string) => executionResults.find(r => r.id === id)
-
-  const getBarColor = (value: number) => {
-    if (value >= 90) return '#ef4444'
-    if (value >= 75) return '#f59e0b'
-    return '#22c55e'
-  }
 
   const hasDangerousSelected = validCommands.some(
     c => activeSelectedIds.has(c.id) && (c.type === 'destructive' || c.risk === 'high')
@@ -171,42 +221,6 @@ export function TasksPanel({
           实时监控系统状态，AI 分析后选择任务批量执行
         </p>
       </div>
-
-      {/* 监控卡片 */}
-      {metrics && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
-          <MetricCard
-            label="CPU 使用率"
-            value={`${metrics.cpu.usagePercent.toFixed(1)}%`}
-            subtext={`${metrics.cpu.model} · ${metrics.cpu.cores} 核`}
-            percent={metrics.cpu.usagePercent}
-            color={getBarColor(metrics.cpu.usagePercent)}
-          />
-          <MetricCard
-            label="内存使用"
-            value={`${metrics.memory.usagePercent.toFixed(1)}%`}
-            subtext={`${metrics.memory.usedLabel} / ${metrics.memory.totalLabel}`}
-            percent={metrics.memory.usagePercent}
-            color={getBarColor(metrics.memory.usagePercent)}
-          />
-          <MetricCard
-            label="网络 I/O"
-            value={`↓${metrics.network.bytesRecvPerSec || '--'}/s ↑${metrics.network.bytesSentPerSec || '--'}/s`}
-            subtext={`总计 ↓${metrics.network.recvLabel || '--'} ↑${metrics.network.sentLabel || '--'}`}
-            percent={0}
-            color="#3b82f6"
-          />
-        </div>
-      )}
-
-      {/* 告警横幅 */}
-      {metrics?.alerts && metrics.alerts.length > 0 && (
-        <div style={{ marginBottom: '24px' }}>
-          {metrics.alerts.map((alert, idx) => (
-            <AlertBanner key={idx} level={alert.level} title={alert.title} message={alert.message} />
-          ))}
-        </div>
-      )}
 
       {/* 🆕 Agent 分析卡片 */}
       {agentAnalysis && (
@@ -400,6 +414,71 @@ export function TasksPanel({
             {voiceLoading ? '识别中...' : isExecuting ? '分析中...' : '🤖 AI 分析'}
           </button>
         </div>
+
+        {/* OCR 截图上传 + 确认队列 */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleOcrUpload(file)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={ocrLoading}
+            style={{
+              background: 'transparent',
+              border: '1px solid #334155',
+              color: '#94a3b8',
+              borderRadius: '8px',
+              padding: '8px 16px',
+              fontSize: '13px',
+              cursor: ocrLoading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {ocrLoading ? '⏳ OCR识别中...' : '📸 上传截图OCR'}
+          </button>
+
+          {ocrResult && (
+            <div style={{
+              background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px',
+              padding: '8px 12px', fontSize: '12px', color: '#cbd5e1',
+              maxHeight: '60px', overflow: 'auto', maxWidth: '400px',
+            }}>
+              {ocrResult.slice(0, 200)}{ocrResult.length > 200 ? '...' : ''}
+            </div>
+          )}
+
+          {confirmQueue.length > 0 && (
+            <div style={{
+              background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444',
+              borderRadius: '8px', padding: '10px 16px',
+              display: 'flex', alignItems: 'center', gap: '12px',
+            }}>
+              <span style={{ color: '#fca5a5', fontSize: '13px' }}>⚠️ {confirmQueue[0].message}</span>
+              <button
+                onClick={confirmQueue[0].onConfirm}
+                style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                ✅ 确认执行
+              </button>
+              <button
+                onClick={confirmQueue[0].onReject}
+                style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: '6px', padding: '6px 16px', fontSize: '13px', cursor: 'pointer' }}
+              >
+                仅执行安全操作
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 任务列表 */}
@@ -563,7 +642,7 @@ export function TasksPanel({
                       </div>
                     )}
                     {/* 🆕 执行结果展示 */}
-                    {result && <ExecutionResult result={result} tool={cmd.tool} onAddCommand={handleAddCommand} />}
+                    {result && <ExecutionResult result={result} tool={cmd.tool} onAddCommand={handleAddCommand} addToast={addToast} confirmQueue={confirmQueue} setConfirmQueue={setConfirmQueue} />}
                   </div>
                 </div>
               )
@@ -614,50 +693,13 @@ export function TasksPanel({
 
 // ============ 子组件 ============
 
-function MetricCard({ label, value, subtext, percent, color }: {
-  label: string; value: string; subtext: string; percent: number; color: string
-}) {
-  return (
-    <div style={{ background: '#111827', border: '1px solid #1e293b', borderRadius: '12px', padding: '16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <span style={{ color: '#94a3b8', fontSize: '13px' }}>{label}</span>
-        <span style={{ color: '#f8fafc', fontSize: '20px', fontWeight: 700 }}>{value}</span>
-      </div>
-      {percent > 0 && (
-        <div style={{ height: '8px', background: '#0f172a', borderRadius: '4px', overflow: 'hidden', marginBottom: '10px' }}>
-          <div style={{ height: '100%', width: `${Math.min(percent, 100)}%`, background: color, borderRadius: '4px', transition: 'width 0.5s ease' }} />
-        </div>
-      )}
-      <div style={{ fontSize: '12px', color: '#64748b' }}>{subtext}</div>
-    </div>
-  )
-}
-
-function AlertBanner({ level, title, message }: { level: string; title: string; message: string }) {
-  return (
-    <div style={{
-      background: level === 'critical' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-      border: `1px solid ${level === 'critical' ? '#ef4444' : '#f59e0b'}`,
-      borderRadius: '10px',
-      padding: '14px 16px',
-      marginBottom: '10px',
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: '12px',
-    }}>
-      <span style={{ fontSize: '20px' }}>{level === 'critical' ? '🔴' : '🟡'}</span>
-      <div>
-        <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{title}</div>
-        <div style={{ color: '#94a3b8', fontSize: '13px' }}>{message}</div>
-      </div>
-    </div>
-  )
-}
-
-function ExecutionResult({ result, tool, onAddCommand }: { 
+function ExecutionResult({ result, tool, onAddCommand, addToast, confirmQueue, setConfirmQueue }: { 
   result: ActionExecutionResult; 
-  tool: string; 
-  onAddCommand?: (cmd: ActionCommand) => void 
+  tool: string;
+  onAddCommand?: (cmd: ActionCommand) => void
+  addToast?: (toast: Omit<ToastItem, 'id'>) => void
+  confirmQueue: Array<{ id: string; message: string; onConfirm: () => void; onReject: () => void }>
+  setConfirmQueue: React.Dispatch<React.SetStateAction<Array<{ id: string; message: string; onConfirm: () => void; onReject: () => void }>>>
 }) {
   if (!result) return null
 
@@ -678,7 +720,7 @@ function ExecutionResult({ result, tool, onAddCommand }: {
         {result.duration !== undefined && <span style={{ color: '#475569', fontSize: '12px', marginLeft: 'auto' }}>{result.duration}ms</span>}
       </div>
 
-      {result.success && Boolean(result.data) ? <ResultData tool={tool} data={result.data as object} onAddCommand={onAddCommand} /> : null}
+      {result.success && Boolean(result.data) ? <ResultData tool={tool} data={result.data as object} onAddCommand={onAddCommand} addToast={addToast} confirmQueue={confirmQueue} setConfirmQueue={setConfirmQueue} /> : null}
       
       {result.error && (
         <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px' }}>
@@ -689,10 +731,13 @@ function ExecutionResult({ result, tool, onAddCommand }: {
   )
 }
 
-function ResultData({ tool, data, onAddCommand }: { 
+function ResultData({ tool, data, onAddCommand, addToast, confirmQueue, setConfirmQueue }: { 
   tool: string; 
   data: object | null; 
-  onAddCommand?: (cmd: ActionCommand) => void 
+  onAddCommand?: (cmd: ActionCommand) => void
+  addToast?: (toast: Omit<ToastItem, 'id'>) => void
+  confirmQueue: Array<{ id: string; message: string; onConfirm: () => void; onReject: () => void }>
+  setConfirmQueue: React.Dispatch<React.SetStateAction<Array<{ id: string; message: string; onConfirm: () => void; onReject: () => void }>>>
 }) {
   if (!data) return null
 
@@ -724,23 +769,32 @@ function ResultData({ tool, data, onAddCommand }: {
                 return !SYSTEM_PROCS.has(pNameNoExt)
               })
               if (top3.length === 0) {
-                alert('前 3 个进程均为系统进程，不可结束')
+                addToast?.({ type: 'warning', message: '前 3 个进程均为系统进程，不可结束' })
                 return
               }
-              if (window.confirm(`一键结束 Top ${top3.length} 高内存进程？\n${top3.map(p => `• ${p.name} (${(p.mem/1024).toFixed(0)}MB)`).join('\n')}`)) {
-                top3.forEach(p => {
-                  onAddCommand?.({
-                    id: `kill-${p.pid}-${Date.now()}`,
-                    tool: 'process:kill',
-                    type: 'destructive',
-                    params: { pid: p.pid },
-                    reason: `结束高内存进程 ${p.name} 释放资源`,
-                    confidence: 0.9,
-                    risk: 'high',
-                    require_confirmation: true,
+              const names = top3.map(p => `${p.name} (${(p.mem/1024).toFixed(0)}MB)`).join(', ')
+              setConfirmQueue(prev => [...prev, {
+                id: `confirm-top3-${Date.now()}`,
+                message: `一键结束 Top ${top3.length} 高内存进程: ${names}？`,
+                onConfirm: () => {
+                  top3.forEach(p => {
+                    onAddCommand?.({
+                      id: `kill-${p.pid}-${Date.now()}`,
+                      tool: 'process:kill',
+                      type: 'destructive',
+                      params: { pid: p.pid },
+                      reason: `结束高内存进程 ${p.name} 释放资源`,
+                      confidence: 0.9,
+                      risk: 'high',
+                      require_confirmation: true,
+                    })
                   })
-                })
-              }
+                  setConfirmQueue(prev => prev.slice(1))
+                },
+                onReject: () => {
+                  setConfirmQueue(prev => prev.slice(1))
+                },
+              }])
             }}
             style={{
               padding: '2px 8px', fontSize: 11, borderRadius: 4,
@@ -777,24 +831,29 @@ function ResultData({ tool, data, onAddCommand }: {
               <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    if (window.confirm(`确定结束 ${p.name} (PID: ${p.pid})？\n未保存的数据将丢失。`)) {
-                      // 🆕 直接通过 API 执行 kill，不加入任务列表
-                      fetch(`${API_BASE}/api/tools/execute`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tool: 'process:kill', params: { pid: p.pid }, force: true })
-                      }).then(res => res.json()).then(data => {
-                        if (data.success || data.data?.success) {
-                          alert(`✅ 已结束 ${p.name} (PID: ${p.pid})`)
-                          // 刷新页面以更新进程列表
-                          window.location.reload()
-                        } else {
-                          alert(`❌ 结束失败: ${data.error || data.data?.error || '未知错误'}`)
-                        }
-                      }).catch(err => {
-                        alert(`❌ 请求失败: ${err.message}`)
-                      })
-                    }
+                    setConfirmQueue(prev => [...prev, {
+                      id: `confirm-kill-${p.pid}-${Date.now()}`,
+                      message: `确定结束 ${p.name} (PID: ${p.pid})？未保存的数据将丢失。`,
+                      onConfirm: () => {
+                        fetch(`${API_BASE}/tools/execute`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ tool: 'process:kill', params: { pid: p.pid }, force: true })
+                        }).then(res => res.json()).then(data => {
+                          if (data.success || data.data?.success) {
+                            addToast?.({ type: 'success', message: `已结束 ${p.name} (PID: ${p.pid})` })
+                          } else {
+                            addToast?.({ type: 'error', message: `结束失败: ${data.error || data.data?.error || '未知错误'}` })
+                          }
+                        }).catch(err => {
+                          addToast?.({ type: 'error', message: `请求失败: ${err.message}` })
+                        })
+                        setConfirmQueue(prev => prev.slice(1))
+                      },
+                      onReject: () => {
+                        setConfirmQueue(prev => prev.slice(1))
+                      },
+                    }])
                   }}
                   style={{
                     padding: '2px 8px', fontSize: 11, borderRadius: 4,

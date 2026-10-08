@@ -371,7 +371,7 @@ async def extract_entities_llm(raw_query: str, intent: str) -> dict[str, Any]:
 async def route_via_llm_real(raw_query: str) -> tuple[str, dict[str, Any], float]:
     prompt = (
         f"根据用户指令路由Agent，用户输入 {raw_query}\n"
-        f"候选agent：app_launch_agent_node(启动/关闭应用)、system_monitor_agent_node(系统监控/性能)、"
+        f"候选agent：app_launch_agent_node(启动/关闭应用)、"
         f"system_clean_agent_node(清理/优化)、browser_agent_node(搜索/网络请求)、"
         f"store_agent_node(应用商店/安装卸载)、content_gen_agent_node(生成内容/代码/文档)、"
         f"planning_node(复杂任务/多步规划/搭建/写论文/面试材料/长任务)、"
@@ -385,14 +385,18 @@ async def route_via_llm_real(raw_query: str) -> tuple[str, dict[str, Any], float
     return parsed.route_target, parsed.agent_input, parsed.route_confidence
 
 
-async def plan_steps_llm(raw_query: str, intent: str, route_target: str) -> tuple[bool, list[dict[str, Any]]]:
+async def plan_steps_llm(raw_query: str, intent: str, route_target: str, taste_context: str = "") -> tuple[bool, list[dict[str, Any]]]:
     simple_intents = {"启动应用程序", "关闭应用", "结束进程", "系统监控", "系统清理", "查看进程"}
     if intent in simple_intents or route_target in ("app_launch_agent_node", "clarification_node"):
         return False, []
+    taste_block = ""
+    if taste_context:
+        taste_block = f"\n[Qloo文化智能背景]\n{taste_context}\n[/Qloo文化智能背景]\n"
     prompt = (
         f"用户请求：{raw_query}\n"
         f"意图：{intent}\n"
-        f"初步路由：{route_target}\n\n"
+        f"初步路由：{route_target}\n"
+        f"{taste_block}\n"
         f"判断是否需要多步执行。如果需要，规划步骤顺序。\n"
         f"每步必须指定priority(P0最高/P1/P2可选)、deliverable(交付物)。\n"
         f"P0=核心前置步骤必须先做；P1=主要步骤；P2=可选优化步骤。\n"
@@ -406,7 +410,7 @@ async def plan_steps_llm(raw_query: str, intent: str, route_target: str) -> tupl
         f"  - rag_retrieve_node：RAG知识库检索（向量+BM25混搭→RRF重排→鉴权前置→证据回溯→压幻觉）\n"
         f"  - evolve_feedback_node：自进化Agent（经验驱动→四类闭环→评估/回滚/权限/供应链治理）\n"
         f"  - code_search_node：智能代码搜索（策略路由→Glob/Grep/Semantic三引擎→权限检查→聚合输出）\n"
-        f"  - system_monitor_agent_node：查看系统状态\n"
+        f"  - system_monitor_agent_node：已移除\n"
         f"  - system_clean_agent_node：清理优化系统\n"
         f"  - app_launch_agent_node：启动/关闭应用\n\n"
         f"示例：用户说'写一篇论文'→多步：\n"

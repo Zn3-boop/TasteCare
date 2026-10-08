@@ -153,6 +153,26 @@ class AgentState(TypedDict, total=False):
     hitl_decision: str
     hitl_comment: str
 
+    # ========== Qloo Cultural Intelligence ==========
+    qloo_enabled: bool
+    qloo_seed_entity_ids: list[str]
+    qloo_seed_names: list[str]
+    qloo_target_domain: str
+    qloo_recommendations: list[dict[str, Any]]
+    qloo_cross_domain_results: dict[str, list[dict[str, Any]]]
+    qloo_taste_context: str
+    qloo_cultural_fit_scores: list[dict[str, Any]]
+
+    # ========== Senior Dining Sub-Graph ==========
+    taste_entities: list[dict[str, Any]]
+    taste_data_source: str
+    health_constraints: dict[str, Any]
+    health_constraint_labels: list[str]
+    filtered_recommendations: list[dict[str, Any]]
+    filter_summary: dict[str, Any]
+    user_feedback: list[dict[str, Any]]
+    last_user_feedback: str | None
+
 def init_state(
     raw_query: str,
     session_id: str = "",
@@ -249,6 +269,22 @@ def init_state(
         needs_hitl=False,
         hitl_decision="",
         hitl_comment="",
+        qloo_enabled=False,
+        qloo_seed_entity_ids=[],
+        qloo_seed_names=[],
+        qloo_target_domain="",
+        qloo_recommendations=[],
+        qloo_cross_domain_results={},
+        qloo_taste_context="",
+        qloo_cultural_fit_scores=[],
+        taste_entities=[],
+        taste_data_source="",
+        health_constraints={},
+        health_constraint_labels=[],
+        filtered_recommendations=[],
+        filter_summary={},
+        user_feedback=[],
+        last_user_feedback=None,
     )
 
 class TaskPlanItemModel(BaseModel):

@@ -18,6 +18,8 @@ export function Sidebar({ activeView, onChange, badgeCounts = {} }: SidebarProps
   const items = [
     { key: 'tasks' as AppView, label: '任务中心', icon: '📋', badge: badgeCounts.tasks },
     { key: 'conversation' as AppView, label: '会话', icon: '💬', badge: badgeCounts.conversation },
+    { key: 'culture' as AppView, label: '文化智能', icon: '🎯', badge: 0 },
+    { key: 'tastecare' as AppView, label: 'TasteCare', icon: '🍽️', badge: 0 },
     { key: 'execution' as AppView, label: '执行日志', icon: '⚡', badge: badgeCounts.execution },
     { key: 'files' as AppView, label: '文件', icon: '📁', badge: badgeCounts.files },
     { key: 'providers' as AppView, label: 'AI配置', icon: '🤖', badge: 0 },

@@ -1,216 +1,185 @@
+"""Ablation comparison for the TasteCare senior-dining demo.
+
+Runs the SAME senior-dining prompts through two variants and returns a
+side-by-side comparison so the UI can show what cultural grounding adds:
+
+- Variant A (no Qloo): pure rule-based dining screening. Uses the health
+  constraint keyword layer from tastecare.py on a deterministic candidate
+  pool. No LLM, no Qloo — fully offline and honest (data_source="rules").
+- Variant B (with Qloo): the real TasteCare pipeline (recommend_meals)
+  when QLOO_API_KEY is configured; otherwise falls back to the same
+  deterministic candidate pool labelled "preview" so the UI can still
+  render a comparison without a key.
+
+Both variants share the same candidates, so the only difference shown is
+whether cultural grounding (Qloo taste graph) is applied.
+"""
+
 from __future__ import annotations
 
-import json
-import logging
-import os
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from app.services.qloo.tastecare import (
+    _annotate_health,
+    _build_constraint_labels,
+    recommend_meals,
+)
 
-DEFAULT_EVAL_DIR = os.path.join(os.path.expanduser("~"), ".ecv_eval_results")
+# Deterministic senior-friendly dining candidates used when Qloo is disabled.
+# Each entry mirrors the shape Qloo /v2/insights returns (name/tags/description)
+# so both variants run over identical input.
+_DEMO_CANDIDATES: list[dict[str, Any]] = [
+    {
+        "entity_id": "preview-congee",
+        "name": "Jiangnan Congee House",
+        "tags": ["porridge", "Chinese", "steamed", "light"],
+        "description": "Traditional Jiangnan-style congee with fresh vegetables and steamed fish.",
+        "popularity": 0.72,
+    },
+    {
+        "entity_id": "preview-bbq",
+        "name": "Salt & Smoke BBQ",
+        "tags": ["BBQ", "smoked", "bacon"],
+        "description": "Slow-smoked ribs and bacon-topped cornbread.",
+        "popularity": 0.88,
+    },
+    {
+        "entity_id": "preview-bakery",
+        "name": "Sweet Bakery",
+        "tags": ["bakery", "dessert", "cake"],
+        "description": "Fresh pastries, layer cakes and sweet iced drinks.",
+        "popularity": 0.84,
+    },
+    {
+        "entity_id": "preview-risotto",
+        "name": "Risotto House",
+        "tags": ["Italian", "risotto", "soft"],
+        "description": "Creamy risotto and soft-chew Italian classics.",
+        "popularity": 0.67,
+    },
+]
+
+# Demo prompts: same senior-dining scenarios across both variants.
+_DEMO_CASES: list[dict[str, Any]] = [
+    {
+        "query": "妈妈高血压，牙口不好，想吃江南清淡家常菜，推荐几家附近餐厅",
+        "cultural_likes": ["Jiangnan home cooking", "light flavor"],
+        "location": "Shanghai",
+        "constraints": {"low_sodium": True, "soft_chewable": True},
+    },
+    {
+        "query": "给喜欢老电影的奶奶找个能喝粥的清淡餐馆",
+        "cultural_likes": ["classic films", "soft congee"],
+        "location": "Shanghai",
+        "constraints": {"low_sodium": True, "soft_chewable": True, "low_sugar": True},
+    },
+    {
+        "query": "爷爷爱吃红烧肉，但血糖高，有没有合适的本帮菜馆",
+        "cultural_likes": ["Shanghai braised pork", "home-style"],
+        "location": "Shanghai",
+        "constraints": {"low_sugar": True},
+    },
+]
 
 
-@dataclass
-class EvalCase:
-    query: str
-    expected_intent: str = ""
-    expected_tools: list[str] = field(default_factory=list)
-    expected_keywords: list[str] = field(default_factory=list)
-    category: str = "general"
+def _candidate_pool(active_labels: list[str]) -> list[dict[str, Any]]:
+    """Annotate the deterministic pool with health screening for variant A."""
+    pool: list[dict[str, Any]] = []
+    for raw in _DEMO_CANDIDATES:
+        candidate = dict(raw)
+        health = _annotate_health(candidate, active_labels)
+        candidate["health"] = health
+        candidate["fit_source"] = "rules"
+        candidate["fit"] = candidate.get("popularity", 0.0)
+        pool.append(candidate)
+    return pool
 
 
-@dataclass
-class EvalResult:
-    case: EvalCase
-    actual_intent: str = ""
-    actual_tools: list[str] = field(default_factory=list)
-    actual_reply: str = ""
-    latency_ms: float = 0.0
-    passed: bool = False
-    scores: dict[str, float] = field(default_factory=dict)
-    error: str = ""
+def _sort_by_health_then_fit(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Passing candidates first, then by fit (honest popularity)."""
+    return sorted(
+        candidates,
+        key=lambda c: (
+            1 if c.get("health", {}).get("passes") else 0,
+            c.get("fit", 0.0),
+        ),
+        reverse=True,
+    )
 
 
-@dataclass
-class AblationConfig:
-    name: str
-    hooks_enabled: bool = True
-    rag_enabled: bool = True
-    web_enabled: bool = True
-    fusion_strategy: str = "weighted"
-    rerank_enabled: bool = False
-    context_compress: bool = True
-    cache_enabled: bool = True
-    intent_recognizer: str = "rule"
-    rewriter: str = "rule"
-
-
-class AblationRunner:
-    """
-    A10: 消融实验框架
-    - 逐个关闭组件，测量对 Pass@1 / 延迟 / 覆盖率 的影响
-    - 结果持久化到 JSON，支持跨运行对比
-    """
-
-    def __init__(self, eval_dir: str = ""):
-        self.eval_dir = eval_dir or DEFAULT_EVAL_DIR
-        os.makedirs(self.eval_dir, exist_ok=True)
-
-    def _standard_ablation_configs(self) -> list[AblationConfig]:
-        return [
-            AblationConfig(name="full", hooks_enabled=True, rag_enabled=True, web_enabled=True, context_compress=True, cache_enabled=True),
-            AblationConfig(name="no_web", hooks_enabled=True, rag_enabled=True, web_enabled=False, context_compress=True, cache_enabled=True),
-            AblationConfig(name="no_rag", hooks_enabled=True, rag_enabled=False, web_enabled=True, context_compress=True, cache_enabled=True),
-            AblationConfig(name="no_hooks", hooks_enabled=False, rag_enabled=True, web_enabled=True, context_compress=False, cache_enabled=False),
-            AblationConfig(name="no_compress", hooks_enabled=True, rag_enabled=True, web_enabled=True, context_compress=False, cache_enabled=True),
-            AblationConfig(name="no_cache", hooks_enabled=True, rag_enabled=True, web_enabled=True, context_compress=True, cache_enabled=False),
-            AblationConfig(name="rule_only", hooks_enabled=True, rag_enabled=True, web_enabled=True, intent_recognizer="rule", rewriter="rule"),
-            AblationConfig(name="no_rerank", hooks_enabled=True, rag_enabled=True, web_enabled=True, rerank_enabled=False),
-        ]
-
-    async def run_single(
-        self,
-        case: EvalCase,
-        config: AblationConfig,
-    ) -> EvalResult:
-        start = time.monotonic()
-        result = EvalResult(case=case)
-
-        env_overrides = {
-            "HOOKS_ENABLED": str(config.hooks_enabled).lower(),
-            "HOOK_RAG_ENABLED": str(config.rag_enabled).lower(),
-            "HOOK_WEB_ENABLED": str(config.web_enabled).lower(),
-            "HOOK_FUSION_STRATEGY": config.fusion_strategy,
-            "HOOK_RERANK_ENABLED": str(config.rerank_enabled).lower(),
-            "HOOK_CONTEXT_COMPRESS": str(config.context_compress).lower(),
-            "HOOK_CACHE_ENABLED": str(config.cache_enabled).lower(),
-            "HOOK_REWRITER": config.rewriter,
+def _to_variant_result(
+    recommendations: list[dict[str, Any]],
+    data_source: str,
+) -> dict[str, Any]:
+    """Shape a recommendation list into the UI's AblationVariantResult contract."""
+    rationale = [
+        {
+            "name": r.get("name", ""),
+            "cultural_match": (
+                "Taste-graph cultural anchor match (Qloo)" if data_source == "live" else "Rule-based preference match"
+            ),
+            "safety_validation": "、".join(r.get("health", {}).get("labels", [])) or (
+                "Passed health screening" if r.get("health", {}).get("passes") else "Flagged by health screening"
+            ),
+            "passes": bool(r.get("health", {}).get("passes")),
         }
+        for r in recommendations
+    ]
+    top = recommendations[0] if recommendations else None
+    return {
+        "top_pick": top.get("name") if top else None,
+        "has_cultural_match": bool(top and top.get("name")),
+        "cultural_grounding": data_source,
+        "data_source": data_source,
+        "rationale": rationale,
+    }
 
-        original_env: dict[str, str | None] = {}
-        for k, v in env_overrides.items():
-            original_env[k] = os.environ.get(k)
-            os.environ[k] = v
 
-        try:
-            from app.services.llm.orchestrator import run_agent_workflow
-            workflow_result = await run_agent_workflow(
-                message=case.query,
-                mode="default",
-            )
+def _variant_a(case: dict[str, Any]) -> dict[str, Any]:
+    """Variant A — no Qloo: rule-based health screening only."""
+    constraints = case.get("constraints", {})
+    active_labels = _build_constraint_labels(constraints)
+    pool = _candidate_pool(active_labels)
+    sorted_pool = _sort_by_health_then_fit(pool)
+    return _to_variant_result(sorted_pool, "rules")
 
-            result.actual_reply = workflow_result.get("reply", "")
-            result.actual_tools = [tc.get("function", {}).get("name", "") for tc in (workflow_result.get("tool_calls") or [])]
 
-            if case.expected_intent:
-                from app.services.intent_detector import detect_intent
-                intent, conf = detect_intent(case.query)
-                result.actual_intent = intent
-
-            result.passed = self._check_pass(case, result)
-            result.scores = self._compute_scores(case, result)
-
-        except Exception as e:
-            result.error = str(e)
-            result.passed = False
-        finally:
-            for k, v in original_env.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-        result.latency_ms = (time.monotonic() - start) * 1000
-        return result
-
-    def _check_pass(self, case: EvalCase, result: EvalResult) -> bool:
-        if case.expected_intent and result.actual_intent != case.expected_intent:
-            return False
-        if case.expected_tools:
-            for t in case.expected_tools:
-                if t not in result.actual_tools:
-                    return False
-        if case.expected_keywords:
-            reply_lower = result.actual_reply.lower()
-            for kw in case.expected_keywords:
-                if kw.lower() not in reply_lower:
-                    return False
-        if not result.actual_reply and not result.actual_tools:
-            return False
-        return True
-
-    def _compute_scores(self, case: EvalCase, result: EvalResult) -> dict[str, float]:
-        scores: dict[str, float] = {}
-        if case.expected_keywords:
-            reply_lower = result.actual_reply.lower()
-            hit = sum(1 for kw in case.expected_keywords if kw.lower() in reply_lower)
-            scores["keyword_recall"] = hit / len(case.expected_keywords)
-        if case.expected_tools:
-            hit = sum(1 for t in case.expected_tools if t in result.actual_tools)
-            scores["tool_recall"] = hit / len(case.expected_tools)
-        scores["has_reply"] = 1.0 if result.actual_reply else 0.0
-        return scores
-
-    async def run_ablation(
-        self,
-        cases: list[EvalCase],
-        configs: list[AblationConfig] | None = None,
-    ) -> dict[str, Any]:
-        if configs is None:
-            configs = self._standard_ablation_configs()
-
-        all_results: dict[str, list[EvalResult]] = {}
-
-        for config in configs:
-            logger.info(f"=== 消融实验: {config.name} ===")
-            config_results: list[EvalResult] = []
-            for case in cases:
-                r = await self.run_single(case, config)
-                config_results.append(r)
-            all_results[config.name] = config_results
-
-        summary = self._summarize(all_results)
-        self._save_results(summary)
-        return summary
-
-    def _summarize(self, all_results: dict[str, list[EvalResult]]) -> dict[str, Any]:
-        summary: dict[str, Any] = {"timestamp": time.time(), "configs": {}}
-        for name, results in all_results.items():
-            total = len(results)
-            passed = sum(1 for r in results if r.passed)
-            avg_latency = sum(r.latency_ms for r in results) / max(total, 1)
-            pass_at_1 = passed / max(total, 1)
-
-            keyword_recalls = [r.scores.get("keyword_recall", 0) for r in results if "keyword_recall" in r.scores]
-            tool_recalls = [r.scores.get("tool_recall", 0) for r in results if "tool_recall" in r.scores]
-
-            summary["configs"][name] = {
-                "total": total,
-                "passed": passed,
-                "pass_at_1": round(pass_at_1, 4),
-                "avg_latency_ms": round(avg_latency, 1),
-                "avg_keyword_recall": round(sum(keyword_recalls) / max(len(keyword_recalls), 1), 4) if keyword_recalls else None,
-                "avg_tool_recall": round(sum(tool_recalls) / max(len(tool_recalls), 1), 4) if tool_recalls else None,
-                "errors": sum(1 for r in results if r.error),
-            }
-        return summary
-
-    def _save_results(self, summary: dict[str, Any]) -> str:
-        ts = int(time.time())
-        path = os.path.join(self.eval_dir, f"ablation_{ts}.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
-        logger.info(f"消融实验结果已保存: {path}")
-        return path
-
-    def load_latest_results(self) -> dict[str, Any] | None:
-        files = sorted(
-            [f for f in os.listdir(self.eval_dir) if f.startswith("ablation_") and f.endswith(".json")],
-            reverse=True,
+async def _variant_b(client: Any, case: dict[str, Any]) -> dict[str, Any]:
+    """Variant B — with Qloo: real TasteCare pipeline (preview fallback)."""
+    if client.enabled:
+        result = await recommend_meals(
+            client,
+            cultural_likes=case.get("cultural_likes", []),
+            location=case.get("location"),
+            constraints=case.get("constraints", {}),
+            take=12,
         )
-        if not files:
-            return None
-        with open(os.path.join(self.eval_dir, files[0]), "r", encoding="utf-8") as f:
-            return json.load(f)
+        if not result.get("error"):
+            return _to_variant_result(result.get("recommendations", []), "live")
+    # No key / error: deterministic preview so the UI still renders honestly.
+    constraints = case.get("constraints", {})
+    active_labels = _build_constraint_labels(constraints)
+    pool = _candidate_pool(active_labels)
+    sorted_pool = _sort_by_health_then_fit(pool)
+    return _to_variant_result(sorted_pool, "preview")
+
+
+async def run_ablation_comparison(client: Any) -> dict[str, Any]:
+    """Run the paired Variant A / Variant B comparison over all demo cases."""
+    comparison: list[dict[str, Any]] = []
+    for case in _DEMO_CASES:
+        comparison.append(
+            {
+                "case": case,
+                "variant_a": _variant_a(case),
+                "variant_b": await _variant_b(client, case),
+            }
+        )
+    return {
+        "timestamp": time.time(),
+        "cases": _DEMO_CASES,
+        "comparison": comparison,
+        "data_source": "live" if client.enabled else "preview",
+    }
+

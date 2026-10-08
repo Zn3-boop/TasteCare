@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 venv/
-local-whisper-stt/venv/
 
-# Models
-local-whisper-stt/models/
+# Models (large files, download via scripts/download_rag_models.py)
+apps/server/models/
 
 # Electron
 electron.zip
@@ -47,6 +46,11 @@ apps/server/app/data/providers.json
 # LangGraph dev runtime data
 .langgraph_api/
 
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
 # Test output logs
 _test_output.log
 api_err.log
@@ -54,11 +58,32 @@ api_out.log
 vite_err.log
 vite_out.log
 
-# Root-level test scripts (one-off experiments, not part of the project)
+# Root-level one-off scripts (not part of the project)
 /test_*.py
+/add_ollama.py
+/automation_smoke_test.py
+/diagnose_agent.py
+/fix_app.py
+/quick_test.py
+/run_task2.py
+/show_api_result.py
+/task1_login.py
+/update_provider.py
 patch.py
 patch2.py
 temp_repl.txt
+
+# Root-level bat/ps1 scripts (legacy)
+/*.bat
+/*.ps1
+
+# Root-level temp files
+/tmp-*
+/*.html
+
+# Legacy external services (not part of TasteCare)
+edge-tts-api/
+local-whisper-stt/
 
 # Runtime data & logs
 *.log
@@ -91,3 +116,28 @@ jev_lite/
 
 # Pytest cache
 .pytest_cache/
+
+# Package lock files
+apps/desktop/package-lock.json
+package-lock.json
+
+# Dev logs
+.devlogs/
+
+# HuggingFace cache
+.cache/
+
+# Database files (runtime)
+*.db
+
+# Deployment artifacts
+apps/server/deploy/
+
+# Desktop models (VAD etc.)
+apps/desktop/models/
+
+# Desktop dist (build output)
+apps/desktop/dist/
+
+# Desktop node_modules
+apps/desktop/node_modules/
