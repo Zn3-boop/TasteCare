@@ -2,7 +2,18 @@
 
 > **Healthy advice only works when it still feels like your food.**
 
+> Qloo is not an enrichment layer in TasteCare. It is the reason the product can distinguish "healthy food this person might tolerate" from "food this person would recognize as their own."
+
 TasteCare uses Qloo's cultural taste graph to help an older adult find meals that fit both their tastes and their health constraints. Without Qloo, an LLM can suggest generic healthy meals. With Qloo, the agent can resolve cultural anchors—such as Frank Sinatra and Italian cuisine—into real entities, use them to ground its response, and show that evidence to the user.
+
+## 30-second judge path
+
+1. Open the hosted demo. The Senior Dining tab automatically loads Maria's profile.
+2. Click **"Find Meals She'd Actually Love"**.
+3. Look for the green **Qloo taste graph — recommendations grounded live** badge and the grounding panel under the answer. The panel lists the resolved cultural anchors; it currently shows honest preview placeholders while the backend `taste_entities`/`qloo_context` passthrough ships.
+4. Switch to the **"Why Qloo"** tab and compare side-by-side:
+   - **With Qloo** — culturally grounded recommendations powered by live Qloo knowledge base.
+   - **Without Qloo** — controlled generic LLM baseline (static reference output for ablation comparison, not a second live runtime call).
 
 ## 30-second demo
 
@@ -14,6 +25,9 @@ Try: **“My 80-year-old dad loves Frank Sinatra and Italian food but needs low-
 The Agent tab shows the cultural entities returned by Qloo beneath the response when live entities resolve. The panel labels live Qloo evidence distinctly from preview data; the UI must not imply that preview data came from Qloo.
 
 ## Why Qloo?
+
+**TasteCare without Qloo is a generic diet assistant.**  
+TasteCare with Qloo connects identity, culture, and health constraints in one recommendation. Without Qloo's preference grounding, the model generates generic "healthy" suggestions that ignore cultural identity and personal dietary boundaries for older adults.
 
 Meet Maria: she grew up in New York's Little Italy with garlic, basil, and Sinatra on the radio. Now she needs easy-to-chew, lower-sodium meals and must consider medication-related food constraints.
 

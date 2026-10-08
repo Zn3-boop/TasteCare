@@ -30,6 +30,9 @@ export function AgentTab(props: Props) {
         <p style={{ fontSize: 13, color: '#9CA3AF', lineHeight: 1.6 }}>
           Ask anything — the agent calls the <strong style={{ color: '#E5E7EB' }}>Qloo taste graph</strong> to ground every recommendation in real cultural data, not guesses.
         </p>
+        <p style={{ fontSize: 11, color: '#6B7280', marginTop: 6, fontStyle: 'italic' }}>
+          💡 The full Grounding evidence panel appears under each agent reply. Try the Sinatra prompt below — it resolves cultural anchors into visible Qloo entities.
+        </p>
         {onOpenDiscover && (
           <button
             onClick={onOpenDiscover}

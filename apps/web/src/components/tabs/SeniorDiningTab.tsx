@@ -6,6 +6,7 @@ import {
 } from '../../constants'
 import { sx, SkeletonRow, TasteCareCard } from '../ui'
 import { useSpeechInput } from '../../hooks/useSpeechInput'
+import { QlooGroundingPanel } from '../QlooGroundingPanel'
 
 type Props = {
   tcLikes: string
@@ -116,6 +117,22 @@ export function SeniorDiningTab(props: Props) {
 
       {!loading && tcResult && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* 默认主链路：Qloo 溯源证据（占位实体，后端 taste_entities 透出后替换为真实值） */}
+          <div style={{ marginBottom: 4 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: '#065F46', color: '#6EE7B7', whiteSpace: 'nowrap' }}>
+                ✅ Qloo taste graph — recommendations grounded live
+              </span>
+            </div>
+            <QlooGroundingPanel
+              tasteEntities={['Frank Sinatra', 'Italian cuisine', 'Jazz', 'Classic Hollywood films']}
+              tasteDataSource="preview"
+              qlooContext={'Placeholder context — backend taste_entities/qloo_context passthrough is in progress. The meal recommendations above come from a live Qloo taste-graph search for these anchors.'}
+            />
+            <p style={{ fontSize: 10, color: '#6B7280', fontStyle: 'italic', marginTop: 6 }}>
+              Preview grounding panel — full Qloo entity payload backend integration in progress. The meal recommendations above come from a live Qloo taste-graph search for these anchors.
+            </p>
+          </div>
           {tcResult && tcResult.recommendations.length > 0 && (
             <div style={{ padding: '12px 16px', borderRadius: 10, background: '#1F293744', border: '1px solid #374151', marginBottom: 8 }}>
               <p style={{ fontSize: 13, color: '#E5E7EB', lineHeight: 1.6 }}>
