@@ -2,18 +2,17 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
+
 from typing import Any
 
 import httpx as httpx
 
+from app.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-# 加载 .env 文件 (provider.py -> services -> app -> apps -> server)
-_env_file = Path(__file__).parent.parent.parent.parent / ".env"
-if _env_file.exists():
-    from dotenv import load_dotenv
-    load_dotenv(_env_file)
+# .env 已由 app.core.config.Settings 统一加载（env_file 指向 apps/server/.env）；
+# 这里不再自行 load_dotenv。os 仍保留，供 ProviderManager 等可选路径使用。
 
 try:
     from app.services.llm.rate_limiter import rate_limiter
@@ -75,20 +74,23 @@ def _classify_provider_error(status_code: int, response_text: str) -> LLMProvide
 
 class LLMProvider:
     def __init__(self) -> None:
+        # 部署关键 LLM 配置统一由 app.core.config.Settings 读取（env_file 加载 .env）。
+        # 每次构造都重新解析，避免缓存导致测试中 patch.dict("os.environ", ...) 不生效。
+        settings = get_settings()
         # 优先从 ProviderManager 读取动态配置
         self._provider = self._load_active_provider()
         if self._provider:
             self.api_key = self._provider.api_key
             self.base_url = self._provider.api_url.rstrip("/")
             self.model = self._provider.model
-            self.timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+            self.timeout = settings.llm_timeout_seconds
             self.enabled = True
         else:
             # 降级到 .env 配置
-            self.api_key = os.getenv("LLM_API_KEY", "").strip()
-            self.base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
-            self.model = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-            self.timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+            self.api_key = settings.llm_api_key.strip()
+            self.base_url = settings.llm_base_url.rstrip("/")
+            self.model = settings.llm_model
+            self.timeout = settings.llm_timeout_seconds
             self.enabled = bool(self.api_key)
 
     def _load_active_provider(self):

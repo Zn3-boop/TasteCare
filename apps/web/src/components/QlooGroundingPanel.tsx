@@ -2,7 +2,7 @@
 // graph in this turn's reasoning, not guesses. Rendered under each agent reply in
 // AgentTab. The live/preview badge mirrors TasteBridge so the no-key demo never
 // masquerades preview data as Qloo output.
-import { sx } from './ui'
+import { sx } from './sx'
 
 type Props = {
   tasteEntities: string[]

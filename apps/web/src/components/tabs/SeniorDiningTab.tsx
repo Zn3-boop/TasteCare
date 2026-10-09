@@ -4,7 +4,8 @@ import {
   CONSTRAINT_META, DISCLAIMER_EN, DISCLAIMER_ZH,
   EN_CONSTRAINT_ICON, EN_CONSTRAINT_LABEL,
 } from '../../constants'
-import { sx, SkeletonRow, TasteCareCard } from '../ui'
+import { SkeletonRow, TasteCareCard } from '../ui'
+import { sx } from '../sx'
 import { useSpeechInput } from '../../hooks/useSpeechInput'
 import { QlooGroundingPanel } from '../QlooGroundingPanel'
 

@@ -43,7 +43,7 @@ A generic LLM might suggest grilled chicken, steamed vegetables, and oatmeal. Th
 
 ```mermaid
 flowchart LR
-    U[Web demo] -->|POST /chat/agent| API[FastAPI]
+    U[Web demo] -->|POST /api/v1/chat/agent| API[FastAPI]
     API -->|search cultural anchors| Q[Qloo Taste Graph]
     Q -->|resolved entities| API
     API -->|entities injected into prompt| L[LLM]
@@ -52,7 +52,7 @@ flowchart LR
     U -->|feedback| API
 ```
 
-For `/chat/agent`, the backend extracts cultural likes, resolves them with `search_cultural_entities()`, injects matching entities into the LLM prompt, and returns `taste_entities`, `taste_data_source`, and `qloo_context`. The web Agent tab renders the evidence panel when resolved entities are present. A live panel requires a configured Qloo key and actual Qloo results; missing credentials or unresolved entities are not presented as live grounding.
+For `/api/v1/chat/agent`, the backend extracts cultural likes, resolves them with `search_cultural_entities()`, injects matching entities into the LLM prompt, and returns `taste_entities`, `taste_data_source`, and `qloo_context`. The web Agent tab renders the evidence panel when resolved entities are present. A live panel requires a configured Qloo key and actual Qloo results; missing credentials or unresolved entities are not presented as live grounding.
 
 Additional Qloo capabilities include entity search, taste-based recommendations, cross-domain discovery, cultural-fit scoring, and TasteCare dining recommendations. Cultural matching and health constraints are separate signals. This prototype does not provide medical advice.
 
@@ -72,9 +72,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 3. In a second terminal, start the web app:
 
 ```bash
-cd apps/web
-npm install
-npm run dev
+pnpm install
+pnpm --dir apps/web dev
 ```
 
 Open `http://localhost:3000`. Set `VITE_API_BASE` to the backend URL when the development proxy is not used.

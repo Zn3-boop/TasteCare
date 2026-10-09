@@ -27,12 +27,22 @@ type SpeechRecognitionLike = {
  *   hide the mic button and gracefully degrade to typing.
  */
 export function useSpeechInput(onTranscript: (t: string) => void, lang = 'en-US') {
-  const [supported, setSupported] = useState(false)
+  const [supported] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognitionLike
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike
+    }
+    return !!(w.SpeechRecognition || w.webkitSpeechRecognition)
+  })
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const recRef = useRef<SpeechRecognitionLike | null>(null)
   const onTranscriptRef = useRef(onTranscript)
-  onTranscriptRef.current = onTranscript
+
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript
+  }, [onTranscript])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -41,8 +51,7 @@ export function useSpeechInput(onTranscript: (t: string) => void, lang = 'en-US'
       webkitSpeechRecognition?: new () => SpeechRecognitionLike
     }
     const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!Ctor) { setSupported(false); return }
-    setSupported(true)
+    if (!Ctor) return
 
     const rec = new Ctor()
     rec.lang = lang

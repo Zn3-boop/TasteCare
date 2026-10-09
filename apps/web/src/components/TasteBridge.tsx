@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react'
 import { DOMAIN_COLORS } from '../constants'
-import { sx } from './ui'
+import { sx } from './sx'
 
 export type BridgeZone = {
   domain: string

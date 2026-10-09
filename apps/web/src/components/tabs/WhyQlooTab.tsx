@@ -1,7 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { TasteCareResult } from '../../api'
 import { GENERIC_LLM_RESULTS } from '../../constants'
-import { sx, TasteCareCard } from '../ui'
+import { TasteCareCard } from '../ui'
+import { sx } from '../sx'
 
 type Props = {
   whyMode: 'qloo' | 'generic'

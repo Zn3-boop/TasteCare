@@ -229,7 +229,7 @@ class TestAblationAPI:
 
         client = TestClient(app)
         with patch("app.services.qloo.client.get_qloo_client", return_value=_disabled_client()):
-            resp = client.post("/ablation/comparison", json={})
+            resp = client.post("/api/v1/ablation/comparison", json={})
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["data_source"] == "preview"
@@ -256,7 +256,7 @@ class TestAblationAPI:
         }
         stub = _enabled_client(payload)
         with patch("app.services.qloo.client.get_qloo_client", return_value=stub):
-            resp = client.post("/ablation/comparison", json={})
+            resp = client.post("/api/v1/ablation/comparison", json={})
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["data_source"] == "live"

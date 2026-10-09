@@ -135,7 +135,7 @@ class TestSeniorProfileHTTP:
     @pytest.mark.parametrize("bad_take", [0, -1, 51, 100])
     def test_invalid_take_returns_422(self, bad_take):
         resp = client_http.post(
-            "/tastecare/recommend",
+            "/api/v1/tastecare/recommend",
             json={"cultural_likes": ["Jazz"], "take": bad_take},
         )
         assert resp.status_code == 422, resp.text
@@ -149,7 +149,7 @@ class TestSeniorProfileHTTP:
 
         with patch("app.api.tastecare.get_qloo_client", return_value=self._disabled_client()):
             resp = client_http.post(
-                "/tastecare/recommend",
+                "/api/v1/tastecare/recommend",
                 json={"cultural_likes": ["Jazz"], "take": 50},
             )
         assert resp.status_code == 503
@@ -160,21 +160,21 @@ class TestSeniorProfileHTTP:
 
         with patch("app.api.tastecare.get_qloo_client", return_value=self._disabled_client()):
             resp = client_http.post(
-                "/tastecare/recommend",
+                "/api/v1/tastecare/recommend",
                 json={"cultural_likes": ["Jazz"]},
             )
         assert resp.status_code == 503
 
     def test_malformed_constraints_returns_422(self):
         resp = client_http.post(
-            "/tastecare/recommend",
+            "/api/v1/tastecare/recommend",
             json={"cultural_likes": ["Jazz"], "constraints": "low_sodium"},
         )
         assert resp.status_code == 422
 
     def test_malformed_cultural_likes_returns_422(self):
         resp = client_http.post(
-            "/tastecare/recommend",
+            "/api/v1/tastecare/recommend",
             json={"cultural_likes": "Jazz"},
         )
         assert resp.status_code == 422

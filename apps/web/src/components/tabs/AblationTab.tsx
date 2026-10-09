@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { AblationComparisonResponse } from '../../api'
 import { fetchAblationComparison } from '../../api'
-import { sx } from '../ui'
+import { sx } from '../sx'
 
 function RationaleCard({ item, tone }: { item: { name?: string; cultural_match?: string; safety_validation?: string; passes?: boolean }; tone: 'a' | 'b' }) {
   const col = tone === 'a' ? '#F87171' : '#6EE7B7'

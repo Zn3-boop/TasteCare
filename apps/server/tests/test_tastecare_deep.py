@@ -535,14 +535,14 @@ class TestTasteCareHTTP:
 
     def test_status_disabled(self):
         with patch("app.api.tastecare.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.get("/tastecare/status")
+            resp = client_http.get("/api/v1/tastecare/status")
         assert resp.status_code == 200
         data = resp.json()
         assert data["enabled"] is False
 
     def test_status_enabled(self):
         with patch("app.api.tastecare.get_qloo_client", return_value=self._mock_enabled()):
-            resp = client_http.get("/tastecare/status")
+            resp = client_http.get("/api/v1/tastecare/status")
         assert resp.status_code == 200
         data = resp.json()
         assert data["enabled"] is True
@@ -550,7 +550,7 @@ class TestTasteCareHTTP:
 
     def test_recommend_503_when_disabled(self):
         with patch("app.api.tastecare.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
+            resp = client_http.post("/api/v1/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
         assert resp.status_code == 503
 
     def test_recommend_200_when_enabled(self):
@@ -563,7 +563,7 @@ class TestTasteCareHTTP:
                 "explanation": "test",
                 "disclaimer": MEDICATION_DISCLAIMER,
             }):
-                resp = client_http.post("/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
+                resp = client_http.post("/api/v1/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
         assert resp.status_code == 200
         data = resp.json()
         assert data["source"] == "qloo"
@@ -575,18 +575,18 @@ class TestTasteCareHTTP:
                 "error": "no_preferences",
                 "explanation": "",
             }):
-                resp = client_http.post("/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
+                resp = client_http.post("/api/v1/tastecare/recommend", json={"cultural_likes": ["Jazz"]})
         assert resp.status_code == 422
 
     def test_status_includes_disclaimer(self):
         with patch("app.api.tastecare.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.get("/tastecare/status")
+            resp = client_http.get("/api/v1/tastecare/status")
         data = resp.json()
         assert data["disclaimer"] == MEDICATION_DISCLAIMER
 
     def test_status_includes_supported_constraints(self):
         with patch("app.api.tastecare.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.get("/tastecare/status")
+            resp = client_http.get("/api/v1/tastecare/status")
         data = resp.json()
         assert "low_sugar" in data["supported_constraints"]
         assert "low_sodium" in data["supported_constraints"]
@@ -868,59 +868,59 @@ class TestQlooHTTP:
 
     def test_qloo_status_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.get("/qloo/status")
+            resp = client_http.get("/api/v1/qloo/status")
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
 
     def test_qloo_status_enabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_enabled()):
-            resp = client_http.get("/qloo/status")
+            resp = client_http.get("/api/v1/qloo/status")
         assert resp.status_code == 200
         assert resp.json()["enabled"] is True
 
     def test_qloo_search_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/search", json={"query": "Jazz"})
+            resp = client_http.post("/api/v1/qloo/search", json={"query": "Jazz"})
         assert resp.status_code == 503
 
     def test_qloo_recommend_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/recommend", json={"seed_entity_ids": ["e1"]})
+            resp = client_http.post("/api/v1/qloo/recommend", json={"seed_entity_ids": ["e1"]})
         assert resp.status_code == 503
 
     def test_qloo_cross_domain_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/cross-domain", json={"seed_entity_ids": ["e1"]})
+            resp = client_http.post("/api/v1/qloo/cross-domain", json={"seed_entity_ids": ["e1"]})
         assert resp.status_code == 503
 
     def test_qloo_similarity_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/similarity", json={"entity_ids": ["e1"]})
+            resp = client_http.post("/api/v1/qloo/similarity", json={"entity_ids": ["e1"]})
         assert resp.status_code == 503
 
     def test_qloo_cultural_fit_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/cultural-fit", json={"seed_names": ["Jazz"], "candidate_names": ["Blues"]})
+            resp = client_http.post("/api/v1/qloo/cultural-fit", json={"seed_names": ["Jazz"], "candidate_names": ["Blues"]})
         assert resp.status_code == 503
 
     def test_qloo_taste_profile_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/taste-profile", json={"entity_ids": ["e1"]})
+            resp = client_http.post("/api/v1/qloo/taste-profile", json={"entity_ids": ["e1"]})
         assert resp.status_code == 503
 
     def test_qloo_llm_context_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/llm-context", json={"user_likes": ["Jazz"]})
+            resp = client_http.post("/api/v1/qloo/llm-context", json={"user_likes": ["Jazz"]})
         assert resp.status_code == 503
 
     def test_qloo_entity_detail_503_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.get("/qloo/entity/e1")
+            resp = client_http.get("/api/v1/qloo/entity/e1")
         assert resp.status_code == 503
 
     def test_bridge_graph_works_when_disabled(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/bridge-graph", json={"center_label": "Frank Sinatra"})
+            resp = client_http.post("/api/v1/qloo/bridge-graph", json={"center_label": "Frank Sinatra"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["data_source"] == "preview"
@@ -928,7 +928,7 @@ class TestQlooHTTP:
 
     def test_bridge_graph_returns_center(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):
-            resp = client_http.post("/qloo/bridge-graph", json={"center_label": "Test Center"})
+            resp = client_http.post("/api/v1/qloo/bridge-graph", json={"center_label": "Test Center"})
         assert resp.json()["center"] == "Test Center"
 
 

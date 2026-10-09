@@ -49,7 +49,7 @@ def test_chat_feedback_grounds_in_qloo_taste_context():
         return_value=_mock_qloo_client_enabled_false(),
     ):
         resp = client.post(
-            "/chat/feedback",
+            "/api/v1/chat/feedback",
             json={
                 "message_id": "msg-grounding-1",
                 "thumb": "up",
@@ -71,7 +71,7 @@ def test_chat_feedback_plain_reply_keeps_grounding_defaults():
         return_value=_mock_qloo_client_enabled_false(),
     ):
         resp = client.post(
-            "/chat/feedback",
+            "/api/v1/chat/feedback",
             json={
                 "message_id": "msg-plain-1",
                 "thumb": "down",
@@ -95,7 +95,7 @@ def test_chat_agent_preview_fallback_without_llm_key():
         spec=("enabled", "chat"),
     ) as mock_provider:
         mock_provider.enabled = False
-        resp = client.post("/chat/agent", json={"message": "Recommend a dinner for Maria"})
+        resp = client.post("/api/v1/chat/agent", json={"message": "Recommend a dinner for Maria"})
 
     assert resp.status_code == 200, resp.text
     payload = resp.json()
@@ -129,7 +129,7 @@ def test_chat_agent_live_grounding_resolves_and_injects_taste_entities():
          patch("app.services.qloo.client.get_qloo_client", return_value=mock_client), \
          patch("app.services.qloo.taste.search_cultural_entities", new=fake_search):
         resp = client.post(
-            "/chat/agent",
+            "/api/v1/chat/agent",
             json={"message": "My grandpa loves Frank Sinatra and Italian food but needs low-sodium meals."},
         )
 
@@ -163,7 +163,7 @@ def test_chat_agent_no_grounding_when_qloo_disabled():
     with patch("app.services.llm.provider.provider", fake_provider), \
          patch("app.services.qloo.client.get_qloo_client", return_value=mock_client):
         resp = client.post(
-            "/chat/agent",
+            "/api/v1/chat/agent",
             json={"message": "My grandpa loves Frank Sinatra."},
         )
 
@@ -188,7 +188,7 @@ def test_chat_agent_uses_cultural_system_prompt():
     fake_provider = _FakeProvider(captured, fake_chat, enabled=True)
     with patch("app.services.llm.provider.provider", fake_provider):
         resp = client.post(
-            "/chat/agent",
+            "/api/v1/chat/agent",
             json={"message": "Recommend a dinner for Maria"},
         )
 

@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+// 后端已对业务 API 统一加 /api/v1 前缀（/ 与 /health 是探活路径，不用版本）。
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '') + '/api/v1'
 
 export interface QlooEntity {
   id: string

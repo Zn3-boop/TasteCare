@@ -49,21 +49,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install & Build Web
-        run: |
-          cd apps/web
-          npm install
-          npm run build
-
-  frontend-desktop:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: "20"
-      - name: Install & Build Desktop
-        run: |
-          cd apps/desktop
-          npm install
-          npm run build
+          version: 10.0.0
+          run_install: false
+      - name: Install dependencies (pnpm workspace)
+        run: pnpm install --frozen-lockfile
+      - name: Build Web
+        run: pnpm --filter web build

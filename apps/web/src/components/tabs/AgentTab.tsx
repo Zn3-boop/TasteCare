@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction, RefObject } from 'react'
-import { sx } from '../ui'
+import { sx } from '../sx'
 import { useSpeechInput } from '../../hooks/useSpeechInput'
 import { QlooGroundingPanel } from '../QlooGroundingPanel'
 

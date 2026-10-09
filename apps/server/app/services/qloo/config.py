@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+
+from app.core.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -13,17 +14,16 @@ class QlooConfig:
 
     @classmethod
     def from_env(cls) -> QlooConfig:
-        api_key = os.getenv("QLOO_API_KEY", "")
-        # Hackathon keys are only valid against the hackathon base URL.
-        # Override via QLOO_BASE_URL if you have production/staging access.
-        base_url = os.getenv("QLOO_BASE_URL", "https://hackathon.api.qloo.com")
-        timeout = float(os.getenv("QLOO_TIMEOUT_SECONDS", "30"))
-        retries = int(os.getenv("QLOO_MAX_RETRIES", "3"))
+        # 部署关键配置统一走 app.core.config（pydantic-settings）；不缓存，
+        # 以保证测试里 patch.dict("os.environ", ...) 对 from_env() 实时生效。
+        settings = get_settings()
         return cls(
-            api_key=api_key,
-            base_url=base_url.rstrip("/"),
-            timeout_seconds=timeout,
-            max_retries=retries,
+            api_key=settings.qloo_api_key,
+            # Hackathon keys are only valid against the hackathon base URL.
+            # Override via QLOO_BASE_URL if you have production/staging access.
+            base_url=settings.qloo_base_url.rstrip("/"),
+            timeout_seconds=settings.qloo_timeout_seconds,
+            max_retries=settings.qloo_max_retries,
         )
 
     @property

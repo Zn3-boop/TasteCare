@@ -4,7 +4,6 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,7 +17,8 @@ if hasattr(sys.stdout, 'reconfigure') and (sys.stdout.encoding or '').lower() !=
 if hasattr(sys.stderr, 'reconfigure') and (sys.stderr.encoding or '').lower() != 'utf-8':
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-load_dotenv(Path(__file__).resolve().parents[1] / '.env')
+# .env 已由 app/core/config.py 的 pydantic-settings Settings（env_file 指向
+# apps/server/.env）统一加载，无需在此重复 load_dotenv。
 
 # Web demo（apps/web）专注：仅 import web demo 用到的 6 个 router。
 # 桌面端 router(automation / voice / desktop / provider / browser / agent 等)
@@ -46,13 +46,15 @@ app = FastAPI(
 
 
 # ========== CORS 配置：支持 CORS_ALLOW_ALL 开关 ==========
-_cors_allow_all = os.getenv("CORS_ALLOW_ALL", "false").strip().lower() in {"1", "true", "yes", "on"}
-_allowed_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-_allowed_origins = [o.strip() for o in _allowed_origins_str.split(",") if o.strip()]
+# 部署关键配置集中在 app/core/config.py（pydantic-settings），启动时解析一次。
+from app.core.config import get_settings
+
+_settings = get_settings(cache=True)
+_allowed_origins = [o.strip() for o in _settings.cors_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins if not _cors_allow_all else ["*"],
+    allow_origins=_allowed_origins if not _settings.cors_allow_all else ["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,10 +116,11 @@ async def root():
 async def Health_check():
     return {"status": "healthy"}
 
-# ========== Web demo 路由注册（仅 7 个，专注 apps/web） ==========
+# ========== Web demo 路由注册（业务路由统一 /api/v1 前缀；/ 与 /health 为探活路径，不加版本） ==========
+API_V1_PREFIX = "/api/v1"
 app.include_router(health.router)
-app.include_router(chat.router)
-app.include_router(tools.router)
-app.include_router(qloo.router)
-app.include_router(tastecare.router)
-app.include_router(ablation.router)
+app.include_router(chat.router, prefix=API_V1_PREFIX)
+app.include_router(tools.router, prefix=API_V1_PREFIX)
+app.include_router(qloo.router, prefix=API_V1_PREFIX)
+app.include_router(tastecare.router, prefix=API_V1_PREFIX)
+app.include_router(ablation.router, prefix=API_V1_PREFIX)

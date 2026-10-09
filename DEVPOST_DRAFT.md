@@ -84,7 +84,7 @@ cd apps/server && pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Frontend
-cd apps/web && npm install && npm run dev   # http://localhost:3000
+pnpm install && pnpm --dir apps/web dev   # http://localhost:3000
 ```
 
 Optional: `QLOO_API_KEY=...` for live Qloo data; works in demo/preview mode otherwise.

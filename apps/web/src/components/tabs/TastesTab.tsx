@@ -1,7 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { QlooEntity } from '../../api'
 import { DOMAINS } from '../../constants'
-import { sx, EntityCard } from '../ui'
+import { EntityCard } from '../ui'
+import { sx } from '../sx'
 
 type Props = {
   domain: string
@@ -9,18 +10,16 @@ type Props = {
   query: string
   setQuery: (v: string) => void
   results: QlooEntity[]
-  setResults: Dispatch<SetStateAction<QlooEntity[]>>
   seeds: QlooEntity[]
   setSeeds: Dispatch<SetStateAction<QlooEntity[]>>
   recs: QlooEntity[]
-  setRecs: Dispatch<SetStateAction<QlooEntity[]>>
   doSearch: () => void
   doRecommend: () => void
   loading: boolean
 }
 
 export function TastesTab(props: Props) {
-  const { domain, setDomain, query, setQuery, results, setResults, seeds, setSeeds, recs, setRecs, doSearch, doRecommend, loading } = props
+  const { domain, setDomain, query, setQuery, results, seeds, setSeeds, recs, doSearch, doRecommend, loading } = props
 
   return (
     <section>

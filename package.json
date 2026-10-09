@@ -3,24 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.0.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "onnxruntime-node"
-    ]
-  },
   "scripts": {
-    "dev:desktop": "pnpm --dir apps/desktop dev",
-    "dev:desktop:electron": "cd apps/desktop && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 AGENT_SERVER_URL=http://127.0.0.1:8000 electron .",
     "dev:server": "python -m uvicorn app.main:app --app-dir apps/server --reload --host 127.0.0.1 --port 8000",
-    "dev:full": "cmd /c \"start cmd /k pnpm dev:server && start cmd /k pnpm dev:desktop && start cmd /k pnpm dev:desktop:electron\""
+    "dev:web": "pnpm --dir apps/web dev",
+    "dev:full": "cmd /c \"start cmd /k pnpm dev:server && start cmd /k pnpm dev:web\"",
+    "lint:web": "pnpm --dir apps/web lint"
   },
   "dependencies": {
     "cross-env": "^10.1.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "electron": "^37.4.0"
   }
 }

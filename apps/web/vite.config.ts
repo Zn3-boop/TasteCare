@@ -5,13 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/qloo': 'http://127.0.0.1:8000',
-      '/tastecare': 'http://127.0.0.1:8000',
-      '/chat': 'http://127.0.0.1:8000',
-      '/ablation': 'http://127.0.0.1:8000',
-      '/health': 'http://127.0.0.1:8000',
-      '/tools': 'http://127.0.0.1:8000',
-      '/storage': 'http://127.0.0.1:8000',
+      // 所有业务 API 统一走 /api/v1，代理到本地 FastAPI 后端。
+      '/api': 'http://127.0.0.1:8000',
     },
   },
 })

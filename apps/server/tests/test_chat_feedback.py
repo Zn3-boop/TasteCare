@@ -39,7 +39,7 @@ def test_feedback_endpoint_preview_records():
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_disabled()
     ):
         resp = client.post(
-            "/chat/feedback",
+            "/api/v1/chat/feedback",
             json={
                 "message_id": "msg-1",
                 "thumb": "up",
@@ -71,7 +71,7 @@ def test_feedback_endpoint_live_records_overlay():
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_enabled()
     ):
         resp = client.post(
-            "/chat/feedback",
+            "/api/v1/chat/feedback",
             json={
                 "message_id": "msg-live-1",
                 "thumb": "up",
@@ -98,8 +98,8 @@ def test_feedback_endpoint_live_down_up_moves_between_pools():
     with patch(
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_enabled()
     ):
-        client.post("/chat/feedback", json={"message_id": "m1", "thumb": "down", "taste_entities": ["Muse"]})
-        resp = client.post("/chat/feedback", json={"message_id": "m2", "thumb": "up", "taste_entities": ["Muse"]})
+        client.post("/api/v1/chat/feedback", json={"message_id": "m1", "thumb": "down", "taste_entities": ["Muse"]})
+        resp = client.post("/api/v1/chat/feedback", json={"message_id": "m2", "thumb": "up", "taste_entities": ["Muse"]})
 
     payload = resp.json()
     assert payload["liked_taste_names"] == ["Muse"]
@@ -109,7 +109,7 @@ def test_feedback_endpoint_live_down_up_moves_between_pools():
 
 
 def test_feedback_endpoint_bad_thumb_rejected():
-    resp = client.post("/chat/feedback", json={"message_id": "m", "thumb": "meh"})
+    resp = client.post("/api/v1/chat/feedback", json={"message_id": "m", "thumb": "meh"})
     assert resp.status_code == 422
 
 

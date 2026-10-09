@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { QlooEntity } from '../../api'
 import { DOMAINS, DOMAIN_COLORS, PREVIEW_BRIDGE, BRIDGE_DOMAIN_ORDER } from '../../constants'
-import { sx, EntityCard } from '../ui'
+import { EntityCard } from '../ui'
+import { sx } from '../sx'
 import { TasteBridge, type BridgeZone } from '../TasteBridge'
 
 type Props = {
