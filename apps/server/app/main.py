@@ -23,7 +23,7 @@ if hasattr(sys.stderr, 'reconfigure') and (sys.stderr.encoding or '').lower() !=
 # Web demo（apps/web）专注：仅 import web demo 用到的 6 个 router。
 # 桌面端 router(automation / voice / desktop / provider / browser / agent 等)
 # 已全部清理，不再 import；相关文件不再暴露路由。
-from app.api import ablation, chat, health, qloo, tastecare, tools
+from app.api import ablation, chat, community, health, memory, qloo, tastecare, tools
 from app.utils.response_cleaner import clean_fastapi_response_body
 
 
@@ -124,3 +124,5 @@ app.include_router(tools.router, prefix=API_V1_PREFIX)
 app.include_router(qloo.router, prefix=API_V1_PREFIX)
 app.include_router(tastecare.router, prefix=API_V1_PREFIX)
 app.include_router(ablation.router, prefix=API_V1_PREFIX)
+app.include_router(memory.router, prefix=API_V1_PREFIX)
+app.include_router(community.router, prefix=API_V1_PREFIX)

@@ -206,14 +206,11 @@ async def test_real_entity_taste_profile_returns_count(client: QlooClient) -> No
 
 @pytest.mark.real_api
 async def test_real_apply_taste_preferences_prepends_liked(client: QlooClient) -> None:
-    from app.services.qloo import feedback as fb
+    from app.services.qloo.feedback import get_feedback_store, reset_feedback_stores
 
     # Fresh feedback state so this test owns the overlay.
-    fb._feedback_records.clear()
-    fb._preview_pool_deltas.clear()
-    fb._liked_taste_names.clear()
-    fb._disliked_taste_names.clear()
-    fb.record_feedback("real-api-test", "up", ["Miles Davis"])
+    reset_feedback_stores()
+    get_feedback_store().record_feedback("real-api-test", "up", ["Miles Davis"])
 
     anchor = await _anchor_artist(client)
     payload = await apply_taste_preferences(
@@ -232,3 +229,28 @@ async def test_real_apply_taste_preferences_prepends_liked(client: QlooClient) -
         assert applied["liked_count"] == 1
         assert applied["disliked_count"] == 0
         assert applied["disliked_removed"] == 0
+
+# ===================== Phase 4B: 7-domain live bridge coverage =====================
+
+
+@pytest.mark.real_api
+async def test_real_cross_domain_all_7_domains_live(client: QlooClient) -> None:
+    """Phase 4B — the Taste Bridge must return live results for ALL 7 domains
+    from a single anchor, proving the expanded bridge graph is wired end-to-end."""
+    anchor = await _anchor_artist(client)
+    all_domains = ["music", "dining", "film", "travel", "fashion", "podcast", "book"]
+    out = await get_cross_domain_discovery(
+        client,
+        [anchor],
+        domains=all_domains,
+        per_domain_limit=3,
+    )
+    for domain in all_domains:
+        assert domain in out, f"expected {domain} in cross-domain results"
+        recs = out[domain]
+        assert isinstance(recs, list)
+        assert recs, f"expected non-empty {domain} recommendations from live Qloo"
+        for r in recs:
+            assert r.get("name"), "each recommendation needs a name"
+            assert r.get("entity_id"), "each recommendation needs an entity_id"
+            assert r.get("type"), "each recommendation needs a type URN"

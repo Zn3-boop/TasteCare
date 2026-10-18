@@ -6,7 +6,7 @@
 // demo never masquerades demo data as Qloo output.
 
 import { useMemo, useState } from 'react'
-import { DOMAIN_COLORS } from '../constants'
+import { DOMAIN_COLORS, type DomainStatus, DOMAIN_LIST } from '../constants'
 import { sx } from './sx'
 
 export type BridgeZone = {
@@ -20,6 +20,8 @@ type Props = {
   zones: BridgeZone[]
   dataSource: 'live' | 'preview'
   loading?: boolean
+  domainStatuses?: Record<string, DomainStatus>
+  onNodeClick?: (node: { entity_id: string; name: string; domain: string; why?: string }) => void
 }
 
 const VIEW_W = 780
@@ -41,7 +43,20 @@ type LayoutNode = {
   popularity?: number | null
 }
 
-export function TasteBridge({ centerLabel, zones, dataSource }: Props) {
+function domainBadge(status: DomainStatus, domain: string) {
+  const map = {
+    done: { icon: '✓', color: '#6EE7B7', bg: '#065F46' },
+    loading: { icon: '⏳', color: '#FCD34D', bg: '#78350F' },
+    idle: { icon: '·', color: '#6B7280', bg: '#1F2937' },
+  }[status]
+  return (
+    <span style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, background: map.bg, color: map.color, fontWeight: 600 }}>
+      {map.icon} {domain}
+    </span>
+  )
+}
+
+export function TasteBridge({ centerLabel, zones, dataSource, loading, domainStatuses, onNodeClick }: Props) {
   const [hovered, setHovered] = useState<LayoutNode | null>(null)
   const [selected, setSelected] = useState<LayoutNode | null>(null)
 
@@ -126,7 +141,8 @@ export function TasteBridge({ centerLabel, zones, dataSource }: Props) {
         <text x={CX} y={CY + 4} textAnchor="middle" fill="#fff" fontSize="10" fontWeight={700}>{centerLabel.length > 14 ? centerLabel.slice(0, 13) + '…' : centerLabel}</text>
         {nodes.map(n => (
           <g key={n.entity_id} style={{ cursor: 'pointer' }}
-            onMouseEnter={() => setHovered(n)} onMouseLeave={() => setHovered(null)}
+            onMouseEnter={() => { setHovered(n); onNodeClick?.(n) }}
+            onMouseLeave={() => setHovered(null)}
             onClick={() => setSelected(n)}>
             <circle cx={n.x} cy={n.y} r={n.r * 1.7} fill="transparent" />
             <circle cx={n.x} cy={n.y} r={n.r} fill={n.color} fillOpacity={0.85} stroke="#fff" strokeOpacity={0.6} strokeWidth={1.2} />
@@ -136,6 +152,14 @@ export function TasteBridge({ centerLabel, zones, dataSource }: Props) {
       </svg>
 
       <div style={{ display: 'flex', gap: 24, marginTop: 14, flexWrap: 'wrap' as const }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#9CA3AF', marginBottom: 8 }}>Domain progress</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5, marginBottom: 12 }}>
+            {DOMAIN_LIST.map(d => (
+              <span key={d}>{domainBadge(domainStatuses?.[d] ?? (zones.some(z => z.domain === d) ? 'done' : 'idle'), d)}</span>
+            ))}
+          </div>
+        </div>
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#9CA3AF', marginBottom: 8 }}>Domain legend</div>
           <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>

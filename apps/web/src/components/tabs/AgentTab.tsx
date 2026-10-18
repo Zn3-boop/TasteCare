@@ -2,6 +2,8 @@ import type { Dispatch, SetStateAction, RefObject } from 'react'
 import { sx } from '../sx'
 import { useSpeechInput } from '../../hooks/useSpeechInput'
 import { QlooGroundingPanel } from '../QlooGroundingPanel'
+import { AGENT_SCENARIO_PROMPTS } from '../../constants'
+import { type MemoryEntity } from '../../hooks/useTasteMemory'
 
 type ChatItem = { id: string; role: string; text: string; tasteEntities?: string[]; tasteDataSource?: string; qlooContext?: unknown; feedback?: 'up' | 'down' | null }
 
@@ -15,16 +17,33 @@ type Props = {
   onFeedback: (messageId: string, thumb: 'up' | 'down') => void
   loading: boolean
   onOpenDiscover?: () => void
+  memory?: { liked: MemoryEntity[]; clearAll: () => void }
 }
 
 export function AgentTab(props: Props) {
-  const { chatMsg, setChatMsg, chatHistory, chatEndRef, doChat, onFeedback, loading, onOpenDiscover } = props
+  const { chatMsg, setChatMsg, chatHistory, chatEndRef, doChat, onFeedback, loading, onOpenDiscover, memory } = props
   const {
     supported: micSupported, listening: micListening, error: micError, toggle: toggleMic,
   } = useSpeechInput((t) => setChatMsg(t))
 
   return (
     <section>
+      {memory && memory.liked.length > 0 && (
+        <div style={{ ...sx.card, marginBottom: 16, border: '1px solid #C77DFF44', background: '#1a1040' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: '#C77DFF' }}>Taste Memory (compounds across sessions)</h3>
+            <button onClick={memory.clearAll} style={{ fontSize: 11, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer' }}>Clear all</button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {memory.liked.map(e => (
+              <span key={e.entity_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1F2937', padding: '3px 8px', borderRadius: 8, fontSize: 11, color: '#D8B4FE', border: '1px solid #7C3AED44' }}>
+                {e.name}{e.domain ? <span style={{ color: '#6B7280', fontSize: 10 }}>{e.domain}</span> : ''}
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: 10, color: '#6B7280', marginTop: 6 }}>These anchors are prepended to all cross-domain queries so your taste profile compounds over time.</p>
+        </div>
+      )}
       <div style={{ ...sx.card, marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: '#E5E7EB', marginBottom: 8 }}>Culturally Intelligent Agent</h2>
         <p style={{ fontSize: 13, color: '#9CA3AF', lineHeight: 1.6 }}>
@@ -41,6 +60,21 @@ export function AgentTab(props: Props) {
             🔗 Open Taste Bridge
           </button>
         )}
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', marginBottom: 8 }}>Quick scenarios (click to ask)</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {AGENT_SCENARIO_PROMPTS.map((p, i) => (
+              <button
+                key={i}
+                onClick={() => setChatMsg(p)}
+                style={{ fontSize: 11, padding: '6px 12px', borderRadius: 8, background: '#1F2937', color: '#D1D5DB', border: '1px solid #374151', cursor: 'pointer', textAlign: 'left', maxWidth: 300, lineHeight: 1.4 }}
+                title={p}
+              >
+                🤖 {i + 1}. {p.length > 44 ? p.slice(0, 44) + '…' : p}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div style={{ minHeight: 340, maxHeight: 440, overflow: 'auto', marginBottom: 16, padding: 18, borderRadius: 12, background: '#0b1020', border: '1px solid #1F2937' }}>
         {chatHistory.length === 0 && (

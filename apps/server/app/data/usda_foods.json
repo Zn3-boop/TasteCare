@@ -1,0 +1,277 @@
+{
+  "_meta": {
+    "source": "USDA FoodData Central (SR Legacy / Foundation Foods) — selected reference values, per 100 g",
+    "note": "离线内置精选参考表（演示用）。钠/蛋白质/纤维/热量为 USDA 公开营养标准值；texture 字段为本应用自维护的质地白名单（USDA 无质地字段），soft/hard 用于软食约束筛查。数值按 100g 计。",
+    "sodium_low_threshold_mg_per_100g": 140,
+    "fiber_high_threshold_g_per_100g": 3,
+    "protein_high_threshold_g_per_100g": 10
+  },
+  "foods": [
+    {
+      "id": "usda-pasta-cooked",
+      "name": "Cooked Pasta (意面)",
+      "keywords": ["pasta", "spaghetti", "fettuccine", "penne", "linguine", "noodle"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 1, "protein_g": 5.8, "fiber_g": 2.4, "kcal": 158 }
+    },
+    {
+      "id": "usda-rice-cooked",
+      "name": "Cooked White Rice (米饭)",
+      "keywords": ["white rice", "steamed rice", "plain rice", "jasmine rice", "basmati", "白米饭"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 1, "protein_g": 2.7, "fiber_g": 0.4, "kcal": 130 }
+    },
+    {
+      "id": "usda-congee",
+      "name": "Rice Congee / Porridge (粥)",
+      "keywords": ["congee", "porridge", "rice porridge", "oatmeal porridge", "粥"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 4, "protein_g": 1.1, "fiber_g": 0.1, "kcal": 52 }
+    },
+    {
+      "id": "usda-tofu",
+      "name": "Tofu (豆腐)",
+      "keywords": ["tofu", "bean curd", "mapo tofu", "soy curd", "豆腐"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 7, "protein_g": 8.1, "fiber_g": 0.3, "kcal": 76 }
+    },
+    {
+      "id": "usda-chicken-breast",
+      "name": "Chicken Breast (鸡胸肉)",
+      "keywords": ["chicken breast", "grilled chicken", "roast chicken", "poached chicken", "鸡胸"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 74, "protein_g": 31.0, "fiber_g": 0.0, "kcal": 165 }
+    },
+    {
+      "id": "usda-steamed-fish",
+      "name": "Steamed Fish (清蒸鱼)",
+      "keywords": ["steamed fish", "poached fish", "baked fish", "white fish", "cod", "tilapia", "sea bass", "清蒸鱼"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 59, "protein_g": 20.4, "fiber_g": 0.0, "kcal": 104 }
+    },
+    {
+      "id": "usda-salmon",
+      "name": "Salmon (三文鱼)",
+      "keywords": ["salmon", "grilled salmon", "baked salmon"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 59, "protein_g": 20.0, "fiber_g": 0.0, "kcal": 208 }
+    },
+    {
+      "id": "usda-egg",
+      "name": "Egg (鸡蛋)",
+      "keywords": ["egg", "omelette", "omelet", "boiled egg", "scrambled egg", "steamed egg", "egg custard"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 124, "protein_g": 12.6, "fiber_g": 0.0, "kcal": 155 }
+    },
+    {
+      "id": "usda-mashed-potato",
+      "name": "Mashed Potato (土豆泥)",
+      "keywords": ["mashed potato", "potato puree", "mashed potatoes", "土豆泥"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 250, "protein_g": 1.9, "fiber_g": 1.5, "kcal": 90 }
+    },
+    {
+      "id": "usda-steamed-broccoli",
+      "name": "Steamed Broccoli (蒸西兰花)",
+      "keywords": ["broccoli", "steamed vegetable", "steamed vegetables", "grilled vegetable", "蒸蔬菜", "西兰花"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 41, "protein_g": 2.4, "fiber_g": 3.3, "kcal": 35 }
+    },
+    {
+      "id": "usda-spinach",
+      "name": "Spinach (菠菜)",
+      "keywords": ["spinach", "sauteed spinach", "creamed spinach", "菠菜"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 79, "protein_g": 2.9, "fiber_g": 2.4, "kcal": 23 }
+    },
+    {
+      "id": "usda-tomato-soup",
+      "name": "Tomato Soup (番茄汤)",
+      "keywords": ["tomato soup", "tomato bisque", "vegetable soup", "minestrone", "蔬菜汤"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 410, "protein_g": 1.1, "fiber_g": 0.5, "kcal": 35 }
+    },
+    {
+      "id": "usda-chicken-soup",
+      "name": "Chicken Soup (鸡汤)",
+      "keywords": ["chicken soup", "chicken broth", "consomme", "chowder", "鸡汤", "浓汤"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 350, "protein_g": 4.0, "fiber_g": 0.2, "kcal": 36 }
+    },
+    {
+      "id": "usda-miso-soup",
+      "name": "Miso Soup (味噌汤)",
+      "keywords": ["miso soup", "miso broth", "dashi", "味噌汤"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 490, "protein_g": 2.5, "fiber_g": 0.3, "kcal": 25 }
+    },
+    {
+      "id": "usda-sushi",
+      "name": "Sushi (寿司)",
+      "keywords": ["sushi", "maki", "nigiri", "sashimi", "寿司"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 420, "protein_g": 5.2, "fiber_g": 0.7, "kcal": 145 }
+    },
+    {
+      "id": "usda-oatmeal",
+      "name": "Oatmeal (燕麦粥)",
+      "keywords": ["oatmeal", "porridge oat", "rolled oats", "oat porridge", "燕麦"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 49, "protein_g": 2.5, "fiber_g": 1.7, "kcal": 62 }
+    },
+    {
+      "id": "usda-lentil-soup",
+      "name": "Lentil Soup (扁豆汤)",
+      "keywords": ["lentil", "lentil soup", "dal", "dahl", "bean soup", "豆汤"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 215, "protein_g": 3.3, "fiber_g": 2.4, "kcal": 58 }
+    },
+    {
+      "id": "usda-sausage",
+      "name": "Sausage (香肠)",
+      "keywords": ["sausage", "bratwurst", "chorizo", "italian sausage", "香肠"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 700, "protein_g": 13.0, "fiber_g": 0.0, "kcal": 300 }
+    },
+    {
+      "id": "usda-bacon",
+      "name": "Bacon (培根)",
+      "keywords": ["bacon", "pancetta", "培根"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 1500, "protein_g": 37.0, "fiber_g": 0.0, "kcal": 541 }
+    },
+    {
+      "id": "usda-ham",
+      "name": "Ham (火腿)",
+      "keywords": ["ham", "prosciutto", "delicatessen", "cold cut", "火腿"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 1200, "protein_g": 18.0, "fiber_g": 0.0, "kcal": 145 }
+    },
+    {
+      "id": "usda-pickles",
+      "name": "Pickles (腌菜)",
+      "keywords": ["pickle", "pickled", "sauerkraut", "kimchi", "腌菜", "泡菜"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 1208, "protein_g": 0.7, "fiber_g": 1.2, "kcal": 11 }
+    },
+    {
+      "id": "usda-fries",
+      "name": "French Fries (薯条)",
+      "keywords": ["french fries", "fried potato", "chips fried", "薯条"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 246, "protein_g": 3.4, "fiber_g": 3.8, "kcal": 312 }
+    },
+    {
+      "id": "usda-fried-chicken",
+      "name": "Fried Chicken (炸鸡)",
+      "keywords": ["fried chicken", "crispy chicken", "kfc", "炸鸡"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 400, "protein_g": 20.0, "fiber_g": 0.8, "kcal": 246 }
+    },
+    {
+      "id": "usda-steak",
+      "name": "Steak (牛排)",
+      "keywords": ["steak", "ribeye", "sirloin", "t-bone", "牛排"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 55, "protein_g": 24.0, "fiber_g": 0.0, "kcal": 240 }
+    },
+    {
+      "id": "usda-nuts",
+      "name": "Nuts (坚果)",
+      "keywords": ["almond", "walnut", "cashew", "peanut", "pecan", "hazelnut", "nuts", "坚果"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 1, "protein_g": 21.0, "fiber_g": 12.0, "kcal": 579 }
+    },
+    {
+      "id": "usda-popcorn",
+      "name": "Popcorn (爆米花)",
+      "keywords": ["popcorn", "爆米花"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 8, "protein_g": 12.0, "fiber_g": 14.5, "kcal": 387 }
+    },
+    {
+      "id": "usda-cake",
+      "name": "Cake (蛋糕)",
+      "keywords": ["cake", "pastry", "dessert", "tiramisu", "cheesecake", "蛋糕", "甜点"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 260, "protein_g": 5.3, "fiber_g": 0.4, "kcal": 350 }
+    },
+    {
+      "id": "usda-ice-cream",
+      "name": "Ice Cream (冰淇淋)",
+      "keywords": ["ice cream", "gelato", "sorbet", "冰淇淋"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 80, "protein_g": 3.5, "fiber_g": 0.0, "kcal": 207 }
+    },
+    {
+      "id": "usda-bagel",
+      "name": "Bagel (贝果)",
+      "keywords": ["bagel", "贝果"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 379, "protein_g": 10.5, "fiber_g": 2.3, "kcal": 250 }
+    },
+    {
+      "id": "usda-bread",
+      "name": "Bread (面包)",
+      "keywords": ["bread", "toast", "brioche", "ciabatta", "面包"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 400, "protein_g": 11.0, "fiber_g": 2.5, "kcal": 265 }
+    },
+    {
+      "id": "usda-yogurt",
+      "name": "Yogurt (酸奶)",
+      "keywords": ["yogurt", "yoghurt", "greek yogurt", "酸奶"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 36, "protein_g": 10.0, "fiber_g": 0.0, "kcal": 59 }
+    },
+    {
+      "id": "usda-avocado",
+      "name": "Avocado (牛油果)",
+      "keywords": ["avocado", "guacamole", "牛油果"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 7, "protein_g": 2.0, "fiber_g": 6.7, "kcal": 160 }
+    },
+    {
+      "id": "usda-cheese",
+      "name": "Cheese (奶酪)",
+      "keywords": ["cheese", "parmesan", "mozzarella", "cheddar", "brie", "cheese platter", "奶酪"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 650, "protein_g": 24.0, "fiber_g": 0.0, "kcal": 400 }
+    },
+    {
+      "id": "usda-grapefruit",
+      "name": "Grapefruit (西柚)",
+      "keywords": ["grapefruit", "grape fruit", "西柚"],
+      "texture": "soft",
+      "per_100g": { "sodium_mg": 0, "protein_g": 0.8, "fiber_g": 1.6, "kcal": 42 }
+    },
+    {
+      "id": "usda-grilled-salad",
+      "name": "Salad (沙拉)",
+      "keywords": ["salad", "caesar salad", "garden salad", "mixed greens", "沙拉"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 240, "protein_g": 1.5, "fiber_g": 1.7, "kcal": 95 }
+    },
+    {
+      "id": "usda-curry",
+      "name": "Curry (咖喱)",
+      "keywords": ["curry", "green curry", "red curry", "chicken curry", "咖喱"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 380, "protein_g": 7.5, "fiber_g": 2.0, "kcal": 130 }
+    },
+    {
+      "id": "usda-stirfry",
+      "name": "Stir-fry (炒菜)",
+      "keywords": ["stir fry", "stir-fry", "chow mein", "fried rice", "炒饭", "炒菜"],
+      "texture": "medium",
+      "per_100g": { "sodium_mg": 460, "protein_g": 6.0, "fiber_g": 1.8, "kcal": 165 }
+    },
+    {
+      "id": "usda-tempura",
+      "name": "Tempura (天妇罗)",
+      "keywords": ["tempura", "fried shrimp", "油炸", "天妇罗"],
+      "texture": "hard",
+      "per_100g": { "sodium_mg": 320, "protein_g": 7.0, "fiber_g": 1.2, "kcal": 230 }
+    }
+  ]
+}

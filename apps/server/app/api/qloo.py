@@ -105,6 +105,21 @@ class LLMContextResponse(BaseModel):
     source: str = "qloo"
 
 
+class EntityDetailsResponse(BaseModel):
+    entity: dict[str, Any] | None = None
+    error: str | None = None
+    source: str = "qloo"
+
+
+class TasteProfileResponse(BaseModel):
+    profile: dict[str, Any] = Field(default_factory=dict)
+    source: str = "qloo"
+
+
+class SimilarityResponse(BaseModel):
+    similar: list[dict[str, Any]] = Field(default_factory=list)
+    source: str = "qloo"
+
 class QlooStatusResponse(BaseModel):
     enabled: bool
     base_url: str
@@ -229,4 +244,6 @@ async def llm_context(payload: LLMContextRequest):
 async def get_entity(entity_id: str):
     client = _ensure_client()
     result = await get_entity_details(client, entity_id)
-    return result
+    if "error" in result:
+        return EntityDetailsResponse(error=result["error"])
+    return EntityDetailsResponse(entity=result)

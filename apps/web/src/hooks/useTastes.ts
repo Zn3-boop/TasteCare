@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { qlooSearch, qlooRecommend, qlooCrossDomain, type QlooEntity } from '../api'
+import { useTasteMemory } from './useTasteMemory'
 
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
@@ -7,6 +8,7 @@ type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
  * Tastes / Discover tab 的状态与动作（搜索、推荐、跨域桥）。
  */
 export function useTastes({ setLoading, setError }: Busy) {
+  const memory = useTasteMemory()
   const [domain, setDomain] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<QlooEntity[]>([])
@@ -24,16 +26,18 @@ export function useTastes({ setLoading, setError }: Busy) {
   const doRecommend = useCallback(async () => {
     if (!seeds.length) return
     setLoading(true); setError('')
-    try { const r = await qlooRecommend(seeds.map(s => s.id), domain || undefined, 12); setRecs(r.recommendations || []) } catch (e) { setError(String(e)) }
+    const allIds = [...memory.entityIds, ...seeds.map(s => s.id)].filter((v, i, a) => a.indexOf(v) === i)
+    try { const r = await qlooRecommend(allIds, domain || undefined, 12); setRecs(r.recommendations || []) } catch (e) { setError(String(e)) }
     setLoading(false)
-  }, [seeds, domain, setLoading, setError])
+  }, [seeds, memory.entityIds, domain, setLoading, setError])
 
   const doCross = useCallback(async () => {
     if (!seeds.length) return
     setLoading(true); setError('')
-    try { setCrossRes((await qlooCrossDomain(seeds.map(s => s.id))).results || {}) } catch (e) { setError(String(e)) }
+    const allIds = [...memory.entityIds, ...seeds.map(s => s.id)].filter((v, i, a) => a.indexOf(v) === i)
+    try { setCrossRes((await qlooCrossDomain(allIds)).results || {}) } catch (e) { setError(String(e)) }
     setLoading(false)
-  }, [seeds, setLoading, setError])
+  }, [seeds, memory.entityIds, setLoading, setError])
 
   return {
     domain, setDomain,

@@ -6,7 +6,7 @@
     - QlooConfig: from_env(), enabled, hackathon base URL
     - QlooClient: enabled/config, disabled behavior
     - entities: resolve_entity_type (all 12 domains), _extract_entities, _normalize
-    - taste: _normalize_entity, _extract_entities, preview bridge graph (15 nodes)
+    - taste: _normalize_entity, _extract_entities, preview bridge graph (19 nodes; 7 domains)
     - feedback: record_feedback, liked/disliked pools, idempotent toggle
 
   Design (complete product):
@@ -69,11 +69,8 @@ from app.services.qloo.taste import (
     _PREVIEW_BRIDGE,
 )
 from app.services.qloo.feedback import (
-    record_feedback,
-    get_liked_taste_names,
-    get_disliked_taste_names,
-    get_feedback_records,
-    get_preview_pool_deltas,
+    get_feedback_store,
+    reset_feedback_stores,
 )
 
 client_http = TestClient(app)
@@ -343,7 +340,7 @@ class TestMedRules:
         assert rule["warning"]
 
     def test_exactly_five_rules(self):
-        assert len(_MED_RULES) == 5
+        assert len(_MED_RULES) == 8
 
     def test_grapefruit_flags_entity(self):
         entity = {"name": "Grapefruit Salad", "tags": []}
@@ -754,12 +751,16 @@ class TestTasteNormalize:
     def test_taste_extract_error(self):
         assert taste_extract({"error": "fail"}) == []
 
-    def test_preview_bridge_has_five_domains(self):
-        assert set(_PREVIEW_BRIDGE.keys()) == {"music", "dining", "film", "travel", "fashion"}
+    def test_preview_bridge_has_seven_domains(self):
+        # 6-domain Taste Bridge: music / dining / film / travel / fashion / podcast / book
+        assert set(_PREVIEW_BRIDGE.keys()) == {
+            "music", "dining", "film", "travel", "fashion", "podcast", "book",
+        }
 
     def test_preview_bridge_total_nodes(self):
         total = sum(len(v) for v in _PREVIEW_BRIDGE.values())
-        assert total == 15
+        # music(3) + dining(3) + film(3) + travel(3) + fashion(3) + podcast(2) + book(2)
+        assert total == 19
 
     def test_preview_bridge_each_has_why(self):
         for domain, items in _PREVIEW_BRIDGE.items():
@@ -775,8 +776,8 @@ class TestTasteNormalize:
         graph = await get_cross_domain_bridge_graph(disabled_client, [], center_label="Test", per_domain_limit=5)
         assert graph["data_source"] == "preview"
         assert graph["center"] == "Test"
-        assert len(graph["nodes"]) == 15
-        assert len(graph["edges"]) == 15
+        assert len(graph["nodes"]) == 19
+        assert len(graph["edges"]) == 19
         for edge in graph["edges"]:
             assert edge["source"] == "center"
             assert "target" in edge
@@ -789,59 +790,64 @@ class TestTasteNormalize:
 
 class TestFeedback:
     def setup_method(self):
-        from app.services.qloo import feedback as fb
-        fb._feedback_records.clear()
-        fb._preview_pool_deltas.clear()
-        fb._liked_taste_names.clear()
-        fb._disliked_taste_names.clear()
+        reset_feedback_stores()
 
     def test_record_like(self):
-        rec = record_feedback("msg1", "up", ["Italian Restaurant"])
+        store = get_feedback_store()
+        rec = store.record_feedback("msg1", "up", ["Italian Restaurant"])
         assert rec["thumb"] == "up"
         assert "Italian Restaurant" in rec["taste_entities"]
 
     def test_record_dislike(self):
-        rec = record_feedback("msg2", "down", ["Sushi Bar"])
+        store = get_feedback_store()
+        rec = store.record_feedback("msg2", "down", ["Sushi Bar"])
         assert rec["thumb"] == "down"
 
     def test_liked_pool_updated(self):
-        record_feedback("msg1", "up", ["Jazz"])
-        liked = get_liked_taste_names()
+        store = get_feedback_store()
+        store.record_feedback("msg1", "up", ["Jazz"])
+        liked = store.get_liked_taste_names()
         assert "Jazz" in liked
         assert liked["Jazz"] > 0
 
     def test_disliked_pool_updated(self):
-        record_feedback("msg1", "down", ["Heavy Metal"])
-        disliked = get_disliked_taste_names()
+        store = get_feedback_store()
+        store.record_feedback("msg1", "down", ["Heavy Metal"])
+        disliked = store.get_disliked_taste_names()
         assert "Heavy Metal" in disliked
 
     def test_toggle_like_to_dislike(self):
-        record_feedback("msg1", "up", ["Blues"])
-        record_feedback("msg2", "down", ["Blues"])
-        liked = get_liked_taste_names()
-        disliked = get_disliked_taste_names()
+        store = get_feedback_store()
+        store.record_feedback("msg1", "up", ["Blues"])
+        store.record_feedback("msg2", "down", ["Blues"])
+        liked = store.get_liked_taste_names()
+        disliked = store.get_disliked_taste_names()
         assert "Blues" not in liked
         assert "Blues" in disliked
 
     def test_feedback_records_stored(self):
-        record_feedback("msg1", "up", ["Rock"])
-        records = get_feedback_records()
+        store = get_feedback_store()
+        store.record_feedback("msg1", "up", ["Rock"])
+        records = store.get_feedback_records()
         assert "msg1" in records
 
     def test_preview_pool_deltas(self):
-        record_feedback("msg1", "up", ["Pop"])
-        deltas = get_preview_pool_deltas()
+        store = get_feedback_store()
+        store.record_feedback("msg1", "up", ["Pop"])
+        deltas = store.get_preview_pool_deltas()
         assert "Pop" in deltas
         assert deltas["Pop"] > 0
 
     def test_blank_message_id_gets_generated_key(self):
-        rec = record_feedback("", "up", ["Test"])
+        store = get_feedback_store()
+        rec = store.record_feedback("", "up", ["Test"])
         assert rec["message_id"].startswith("anon-")
 
     def test_multiple_likes_accumulate_weight(self):
-        record_feedback("m1", "up", ["Classical"])
-        record_feedback("m2", "up", ["Classical"])
-        liked = get_liked_taste_names()
+        store = get_feedback_store()
+        store.record_feedback("m1", "up", ["Classical"])
+        store.record_feedback("m2", "up", ["Classical"])
+        liked = store.get_liked_taste_names()
         assert liked["Classical"] == 2.0
 
 
@@ -924,7 +930,8 @@ class TestQlooHTTP:
         assert resp.status_code == 200
         data = resp.json()
         assert data["data_source"] == "preview"
-        assert len(data["nodes"]) == 15
+        # 7-domain Taste Bridge: music+dining+film+travel+fashion (3 each) + podcast+book (2 each) = 19
+        assert len(data["nodes"]) == 19
 
     def test_bridge_graph_returns_center(self):
         with patch("app.api.qloo.get_qloo_client", return_value=self._mock_disabled()):

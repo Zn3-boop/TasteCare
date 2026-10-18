@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import random
+import re
 import time
 from typing import Any
 
@@ -1950,6 +1951,17 @@ def route_after_hitl(state: AgentState) -> str:
 
 
 async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
+    """Qloo cultural anchor resolution + taste recommendation node.
+
+    This node is the SINGLE entry point for Qloo grounding in the agent
+    pipeline: it is (a) wired into the full LangGraph StateGraph and (b) also
+    awaited directly by the /chat/agent endpoint, so every live recommendation
+    actually executes inside the agent framework's node implementation.
+
+    Every Qloo HTTP call is individually fault-tolerant: a failure in one call
+    degrades to an empty result instead of failing the whole node, so a mock or
+    flaky network can never break the chat path.
+    """
     with NodeMetrics("qloo_cultural_recommend_node"):
         try:
             from app.services.qloo.client import get_qloo_client
@@ -1962,30 +1974,72 @@ async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
             client = get_qloo_client()
             if not client.enabled:
                 return {"qloo_enabled": False, "qloo_taste_context": ""}
+            # P3 DI: /chat/agent injects the session's FeedbackStore via
+            # node_state["feedback_store"]; when the node runs outside that
+            # endpoint, fall back to the registry keyed by session_id.
+            store = state.get("feedback_store")
+            if store is None:
+                from app.services.qloo.feedback import get_feedback_store
+
+                store = get_feedback_store(state.get("session_id"))
             raw_query = state.get("raw_query", "")
             entities = state.get("entities", {})
+            if not isinstance(entities, dict):
+                entities = {}
             taste_entities = state.get("taste_entities", [])
+            if not isinstance(taste_entities, list):
+                taste_entities = []
             seed_names = entities.get("cultural_likes", []) if isinstance(entities.get("cultural_likes"), list) else []
-            target_domain = entities.get("target_domain", "")
+            if not isinstance(seed_names, list):
+                seed_names = []
+            seed_names = [str(s) for s in seed_names if s]
+            target_domain = entities.get("target_domain", "") or ""
             if not seed_names:
                 seed_names = [raw_query]
             seed_entity_ids: list[str] = []
+            # Resolved taste-entity names (already grounded) are skipped in the
+            # per-seed search loop below. NOTE: build the set in an isolated
+            # statement — `name in (...) for te in taste_entities` inside any()
+            # is unreliable under CPython 3.13's inlined-comprehension handling.
+            resolved_taste_names: set[str] = set()
+            resolved_entities: list[dict[str, Any]] = []
             if taste_entities:
                 for te in taste_entities:
+                    if not isinstance(te, dict):
+                        continue
                     eid = te.get("entity_id") or te.get("id", "")
                     if eid:
                         seed_entity_ids.append(eid)
+                        resolved_entities.append(te)
                     name = te.get("name", "")
-                    if name and name not in seed_names:
-                        seed_names.append(name)
+                    if name:
+                        resolved_taste_names.add(str(name))
+                        if name not in seed_names:
+                            seed_names.append(name)
             for name in seed_names:
-                if any(name in (te.get("name", "") for te in taste_entities)):
+                if name in resolved_taste_names:
                     continue
-                results = await search_cultural_entities(client, name, domain=target_domain or None, limit=1)
-                if results:
-                    eid = results[0].get("id", "")
+                try:
+                    results = await search_cultural_entities(client, name, domain=target_domain or None, limit=1)
+                except Exception as e:
+                    logger.warning(f"qloo search failed for {name!r}: {e}")
+                    results = []
+                if not isinstance(results, list):
+                    results = []
+                if results and isinstance(results[0], dict):
+                    ent = results[0]
+                    eid = ent.get("id") or ent.get("entity_id", "")
                     if eid:
                         seed_entity_ids.append(eid)
+                        resolved_taste_names.add(str(name))
+                        resolved_entities.append(
+                            {
+                                "entity_id": eid,
+                                "name": ent.get("name") or name,
+                                "type": ent.get("type", ""),
+                                "domain": ent.get("domain", ""),
+                            }
+                        )
             if not seed_entity_ids:
                 return {
                     "qloo_enabled": True,
@@ -1995,16 +2049,35 @@ async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
                     "qloo_recommendations": [],
                     "qloo_cross_domain_results": {},
                     "qloo_taste_context": "",
+                    "qloo_resolved_names": [],
+                    "taste_entities": resolved_entities,
                 }
-            rec_result = await get_taste_based_recommendations(
-                client, seed_entity_ids, target_domain=target_domain or None, limit=10,
-            )
-            cross_result = await get_cross_domain_discovery(
-                client, seed_entity_ids, per_domain_limit=5,
-            )
-            taste_context = await build_cultural_context_for_llm(
-                client, seed_names, target_domain=target_domain or None, limit=8,
-            )
+            rec_result: dict[str, Any] = {}
+            try:
+                rec_result = await get_taste_based_recommendations(
+                    client, seed_entity_ids, target_domain=target_domain or None, limit=10, store=store,
+                )
+            except Exception as e:
+                logger.warning(f"qloo taste recommendations failed: {e}")
+            rec_result = rec_result if isinstance(rec_result, dict) else {}
+            cross_result: dict[str, Any] = {}
+            try:
+                cross_result = await get_cross_domain_discovery(
+                    client, seed_entity_ids, per_domain_limit=5, store=store,
+                )
+            except Exception as e:
+                logger.warning(f"qloo cross-domain discovery failed: {e}")
+            if not isinstance(cross_result, dict):
+                cross_result = {}
+            taste_context = ""
+            try:
+                taste_context = await build_cultural_context_for_llm(
+                    client, seed_names, target_domain=target_domain or None, limit=8, store=store,
+                )
+            except Exception as e:
+                logger.warning(f"qloo context build failed: {e}")
+            if not isinstance(taste_context, str):
+                taste_context = ""
             return {
                 "qloo_enabled": True,
                 "qloo_seed_entity_ids": seed_entity_ids,
@@ -2013,6 +2086,8 @@ async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
                 "qloo_recommendations": rec_result.get("recommendations", []),
                 "qloo_cross_domain_results": cross_result,
                 "qloo_taste_context": taste_context,
+                "qloo_resolved_names": [str(e.get("name", "")) for e in resolved_entities if e.get("name")],
+                "taste_entities": resolved_entities,
             }
         except Exception as e:
             logger.exception(e)
@@ -2023,6 +2098,199 @@ def route_after_qloo(state: AgentState) -> str:
     if state.get("last_error"):
         return "error_fallback_node"
     return "taste_health_filter_node"
+
+
+# ===== B档 Qloo Agent 编排节点（意图分支 + 重试回环 + 格式化/回退） =====
+# 轻量文化锚点提取：与 chat.py 同源的规则实现，节点自包含（无 NLP 依赖）。
+
+_LIKE_PATTERN = re.compile(
+    r"(?:love|loves|like|likes|enjoy|enjoys|fan of|into)\s+([^.!?。！？\n;]{2,})",
+    re.IGNORECASE,
+)
+_CLAUSE_STARTERS = re.compile(
+    r"\b(but|where|what|how|who|which|when|because|needs?|would|can|to|that)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_like_segments(phrase: str, max_likes: int = 6) -> list[str]:
+    """切分 like 短语为候选文化锚点，并按句式引导词截断尾部（同 chat.py）。"""
+    parts = re.split(r"\s+(?:and|&)\s*|\s+—\s*|\s*,\s*|，|、|;|；", phrase)
+    out: list[str] = []
+    for part in parts:
+        part = part.strip(" \t_·-–—':;\",，。")
+        if not part:
+            continue
+        cut = _CLAUSE_STARTERS.search(part)
+        if cut:
+            part = part[: cut.start()].strip(" \t-–—':;\",，。")
+        part = re.sub(r"^(?:the|a|an)\s+", "", part, count=1, flags=re.I)
+        if not part or part.lower() in out:
+            continue
+        out.append(part)
+        if len(out) >= max_likes:
+            break
+    return out
+
+
+def _extract_message_likes(message: str, max_likes: int = 4) -> list[str]:
+    """从自由文本中提取至多 max_likes 个文化锚点（节点自包含实现）。"""
+    likes: list[str] = []
+    for m in _LIKE_PATTERN.finditer(message or ""):
+        for seg in _clean_like_segments(m.group(1), max_likes=max_likes):
+            if seg.lower() not in [x.lower() for x in likes]:
+                likes.append(seg)
+            if len(likes) >= max_likes:
+                return likes
+    return likes
+
+
+def input_node(state: AgentState) -> dict[str, Any]:
+    """输入归一化：raw_query / session_id / entities / retry_count 类型与默认值兜底。
+
+    不携带 feedback_store / taste_entities 等由外层注入或后续节点维护的字段，
+    保证 LangGraph 状态合并不会意外清空它们。
+    """
+    entities = state.get("entities", {})
+    if not isinstance(entities, dict):
+        entities = {}
+    cultural_likes = entities.get("cultural_likes", [])
+    if not isinstance(cultural_likes, list):
+        cultural_likes = [cultural_likes] if cultural_likes else []
+    cultural_likes = [str(s) for s in cultural_likes if s]
+    target_domain = entities.get("target_domain", "") or ""
+    try:
+        retry_count = max(int(state.get("retry_count") or 0), 0)
+    except (TypeError, ValueError):
+        retry_count = 0
+    return {
+        "raw_query": str(state.get("raw_query") or ""),
+        "session_id": str(state.get("session_id") or "default"),
+        "entities": {
+            "cultural_likes": cultural_likes,
+            "target_domain": str(target_domain),
+        },
+        "retry_count": retry_count,
+        "last_error": None,
+    }
+
+
+def intent_node(state: AgentState) -> dict[str, Any]:
+    """B档规则意图分类节点（无本地 LLM）：输出 intent / intent_confidence。"""
+    from app.services.graph.checkers import QLOO_INTENT, UNKNOWN_INTENT, classify_intent
+
+    intent = classify_intent(str(state.get("raw_query", "")))
+    return {
+        "intent": intent,
+        "intent_confidence": 1.0 if intent == QLOO_INTENT else 0.0,
+    }
+
+
+def build_qloo_query(state: AgentState) -> dict[str, Any]:
+    """构造 Qloo 查询负载：seed 名称（entities.cultural_likes）+ target_domain。
+
+    消息内联的 like 锚点（如 "loves Frank Sinatra"）会补充进 seed 列表；
+    seed 为空时才回退到 raw_query 整体作为兜底查询项。
+    """
+    entities = state.get("entities", {}) or {}
+    likes = entities.get("cultural_likes", [])
+    if not isinstance(likes, list):
+        likes = [likes] if likes else []
+    likes = [str(s) for s in likes if s]
+    for m in _extract_message_likes(str(state.get("raw_query", ""))):
+        if m.lower() not in [x.lower() for x in likes]:
+            likes.append(m)
+    if not likes:
+        likes = [str(state.get("raw_query", "")) or "dinner"]
+    target_domain = entities.get("target_domain", "") or ""
+    return {
+        "qloo_query": {
+            "seed_names": likes,
+            "target_domain": str(target_domain) or None,
+            "limit": 10,
+        },
+        "qloo_seed_names": likes,
+        "qloo_target_domain": str(target_domain),
+    }
+
+
+
+async def qloo_call_node(state: AgentState) -> dict[str, Any]:
+    """B档真实 Qloo 调用节点：复用 qloo_cultural_recommend_node 的全部内部逻辑。
+
+    - 合并节点返回并写入 `qloo_raw_response`（解析实体 / 推荐 / 跨域结果摘要）。
+    - 显式清空 `last_error`：只有本次尝试真正失败才保留，避免上一次重试的错误
+      残留污染 `check_qloo_result` 的决策。
+    """
+    with NodeMetrics("qloo_call_node"):
+        try:
+            result = await qloo_cultural_recommend_node(state)
+        except Exception as e:
+            logger.exception(e)
+            result = {
+                "qloo_enabled": False,
+                "last_error": f"qloo_call_node异常:{e}",
+                "error_type": "business",
+            }
+    merged: dict[str, Any] = dict(result) if isinstance(result, dict) else {}
+    if not merged.get("last_error"):
+        merged["last_error"] = None
+    merged["qloo_raw_response"] = {
+        "resolved_names": merged.get("qloo_resolved_names", []),
+        "recommendations": merged.get("qloo_recommendations", []),
+        "cross_domain": merged.get("qloo_cross_domain_results", {}),
+    }
+    return merged
+
+
+def retry_node(state: AgentState) -> dict[str, Any]:
+    """B档重试节点：retry_count+1、清理 last_error、记录重试原因，回到 qloo_call_node。"""
+    try:
+        retries = int(state.get("retry_count") or 0) + 1
+    except (TypeError, ValueError):
+        retries = 1
+    reason = ""
+    if state.get("last_error"):
+        reason = str(state["last_error"])[:200]
+    elif not state.get("qloo_resolved_names") and not state.get("qloo_recommendations"):
+        reason = "qloo returned no resolvable anchors (empty result)"
+    else:
+        reason = "qloo retry"
+    inc_counter("qloo_retry_triggered_total")
+    return {
+        "retry_count": retries,
+        "last_error": None,
+        "retry_triggered": True,
+        "qloo_retry_reason": reason,
+    }
+
+
+def format_output(state: AgentState) -> dict[str, Any]:
+    """B档成功出口：保证 taste_data_source 标记 live（图内兜底为 preview）。"""
+    data_source = state.get("taste_data_source", "") or ""
+    if not data_source:
+        data_source = "live" if state.get("qloo_enabled") else "preview"
+    return {"taste_data_source": data_source}
+
+
+def fallback_node(state: AgentState) -> dict[str, Any]:
+    """B档回退出口：无 live 数据时降级为 preview，附回退原因（诚实降级，不伪造证据）。"""
+    intent = state.get("intent", "")
+    if state.get("last_error"):
+        reason = f"qloo live call degraded: {state['last_error']}"
+    elif intent and intent != "qloo_recommend":
+        reason = f"intent '{intent}' is out of the qloo agent scope — plain reply"
+    elif not state.get("qloo_enabled"):
+        reason = "qloo disabled (no key) — preview/preference-only grounding"
+    else:
+        reason = "qloo returned no resolvable cultural anchors after retries"
+    inc_counter("qloo_fallback_triggered_total")
+    return {
+        "qloo_enabled": False,
+        "taste_data_source": "preview",
+        "fallback_message": reason,
+        "last_error": None,
+    }
 
 
 # ===== Senior Dining Sub-Graph Nodes =====
@@ -2168,6 +2436,7 @@ async def taste_health_filter_node(state: AgentState) -> dict[str, Any]:
                     "passes": health["passes"] and med["passes"],
                     "labels": health["labels"] + med["labels"],
                     "warnings": health["warnings"] + med["warnings"],
+                    "usda": health.get("usda"),
                 }
                 if entity["health"]["passes"]:
                     passed_count += 1

@@ -22,18 +22,14 @@ def client():
 
 @pytest.fixture(autouse=True)
 def _reset_feedback_pools():
-    """Feedback pools are module-global; reset before/after every test so live-mode
-    recommendation tests never inherit 👍/👎 state recorded by an earlier test."""
-    from app.services.qloo import feedback as _fb
-    _fb._feedback_records.clear()
-    _fb._preview_pool_deltas.clear()
-    _fb._liked_taste_names.clear()
-    _fb._disliked_taste_names.clear()
+    """Feedback stores are session-keyed in a module-level registry; reset it
+    before/after every test so live-mode recommendation tests never inherit
+    👍/👎 state recorded by an earlier test."""
+    from app.services.qloo.feedback import reset_feedback_stores
+
+    reset_feedback_stores()
     yield
-    _fb._feedback_records.clear()
-    _fb._preview_pool_deltas.clear()
-    _fb._liked_taste_names.clear()
-    _fb._disliked_taste_names.clear()
+    reset_feedback_stores()
 
 
 @pytest.mark.asyncio
@@ -135,9 +131,11 @@ async def test_apply_taste_preferences_injects_liked_filters_disliked(client):
     - 👍 'Radiohead' resolves to UUID e1 and is PREPENDED to signal.interests.entities
     - 👎 'Muse' resolves to UUID e2 and is FILTERED OUT of the returned results
     """
-    from app.services.qloo import feedback as _fb
-    _fb.record_feedback("like-1", "up", ["Radiohead"])
-    _fb.record_feedback("dislike-1", "down", ["Muse"])
+    from app.services.qloo.feedback import get_feedback_store
+
+    store = get_feedback_store()
+    store.record_feedback("like-1", "up", ["Radiohead"])
+    store.record_feedback("dislike-1", "down", ["Muse"])
 
     def fake_search(query, **kw):
         if "Radiohead" in query:
@@ -178,8 +176,9 @@ async def test_apply_taste_preferences_injects_liked_filters_disliked(client):
 async def test_get_taste_based_recommendations_live_applies_overlay(client):
     """Live enabled client + non-empty pools: recommendations are re-weighted by the
     local 👍 overlay and 👎 entities never appear."""
-    from app.services.qloo import feedback as _fb
-    _fb.record_feedback("like-2", "up", ["Radiohead"])
+    from app.services.qloo.feedback import get_feedback_store
+
+    get_feedback_store().record_feedback("like-2", "up", ["Radiohead"])
 
     def fake_search(query, **kw):
         return {"success": True, "results": {"entities": [{"name": "Radiohead", "entity_id": "e1", "types": ["urn:entity:artist"]}]}}

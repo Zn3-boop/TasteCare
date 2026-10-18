@@ -9,8 +9,8 @@ Runs the 3 minimal calls that prove the hackathon integration works end-to-end:
 Plus a new live-feedback overlay check:
   4. /v2/insights with 👍/👎 preference overlay (apply_taste_preferences) applied.
 
-Usage:
-    $env:QLOO_API_KEY = "hackathon-key"
+Usage (set your hackathon key — NEVER hardcode it here):
+    $env:QLOO_API_KEY = "your-key"
     python -m app.scripts.qloo_smoke_test            # (run from apps/server)
     # or from repo root:
     python apps/server/scripts/qloo_smoke_test.py
@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover - dotenv optional for key-via-env runs
     pass
 
 from app.services.qloo.client import QlooClient, QlooConfig  # noqa: E402
-from app.services.qloo.feedback import record_feedback  # noqa: E402
+from app.services.qloo.feedback import get_feedback_store  # noqa: E402
 from app.services.qloo.taste import (  # noqa: E402
     apply_taste_preferences,
     search_cultural_entities,
@@ -94,8 +94,8 @@ async def main() -> None:
 
     # --- 4) Live feedback preference overlay -----------------------------
     print("\n[4] live 👍/👎 overlay  -> apply_taste_preferences")
-    record_feedback("smoke-like", "up", [hits[0]["name"]])
-    liked_names = {n for n, w in __import__("app.services.qloo.feedback", fromlist=["get_liked_taste_names"]).get_liked_taste_names().items()}
+    get_feedback_store().record_feedback("smoke-like", "up", [hits[0]["name"]])
+    liked_names = {n for n, w in get_feedback_store().get_liked_taste_names().items()}
     print(f"   liked pool (names): {sorted(liked_names)}")
     overlay = await apply_taste_preferences(client, signal_entities=[anchor], take=5, filter_type="urn:entity:movie")
     if "error" in overlay:

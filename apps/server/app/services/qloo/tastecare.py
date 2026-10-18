@@ -6,11 +6,13 @@ Flow:
   2. Query Qloo /v2/insights for PLACE entities anchored on those preferences,
      narrowed by location and an older-age demographic signal.
   3. Annotate each returned candidate against health constraints
-     (low-sugar / low-sodium / soft-chewable / medication-aware) using a
-     keyword/rule layer on the entity's tags & metadata. This layer is a
-     heuristic filter on top of Qloo's cultural signals — Qloo does the
-     "culturally grounded" ranking, the constraint layer does the health
-     narrowing.
+     (low-sugar / low-sodium / soft-chewable / medication-aware) using TWO
+     evidence layers: an offline USDA FoodData Central numeric layer (sodium /
+     protein / fiber / calories in the matched food row) stacked on the
+     keyword/rule layer, so low-sodium and soft-chewable checks can cite real
+     numbers when a food matches. USDA provides nutrition; texture is our own
+     curated whitelist; medication screening stays a small handwritten table
+     (USDA does not cover pharmacology).
   4. Produce a plain-language explanation grounded in the Qloo-backed results.
 
 NOTE (important): the health-constraint layer is a food-safety *screening*
@@ -22,10 +24,12 @@ physician/pharmacist.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.services.qloo.client import QlooClient, get_qloo_client
 from app.services.qloo.taste import search_cultural_entities
+from app.services.nutrition.usda import match_usda_food, sodium_check, texture_check
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,12 @@ PLACE_TYPE = "urn:entity:place"
 # case-insensitively against entity name, tags, and (when present) description.
 _HEALTH_RULES: dict[str, dict[str, list[str]]] = {
     "low_sodium": {
-        "avoid": ["pickl", "salty", "soy", "cured", "bacon", "ham", "sausage", "sauerkraut", "kimchi", "smoked", "delicatessen", "salt"],
-        "prefer": ["fresh", "steam", "grill", "light", "unsalted", "no salt", "vegetable"],
+        # NOTE: we deliberately match `soy sauce` / `soy-glazed` / `soy-braised`
+        # (sodium-heavy seasoning) instead of the bare word `soy`: plain soy as
+        # an ingredient (tofu, edamame, soy milk, soy-based curd) is a low-sodium
+        # senior-friendly protein and must NOT be mis-flagged as salty.
+        "avoid": ["pickl", "salty", "soy sauce", "soy-glazed", "soy-braised", "soy marinated", "salt", "cured", "bacon", "ham", "sausage", "sauerkraut", "kimchi", "smoked", "delicatessen"],
+        "prefer": ["fresh", "steam", "grill", "steamed", "light", "unsalted", "no salt", "vegetable", "tofu", "soy milk", "edamame"],
     },
     "low_sugar": {
         "avoid": ["dessert", "bakery", "ice cream", "soda", "sweet", "cake", "pastry", "syrup", "candy", "milkshake", "frappe", "doughnut", "donut", "chocolate"],
@@ -82,12 +90,34 @@ def _annotate_health(
     entity: dict[str, Any],
     active_labels: list[str],
 ) -> dict[str, Any]:
-    """Return {passes, labels, warnings} for a Qloo dining candidate."""
+    """Return {passes, labels, warnings, usda} for a Qloo dining candidate.
+
+    Two evidence layers, combined conservatively:
+      1. USDA numeric layer (offline reference table): when a food keyword from
+         the venue name/tags/description matches a USDA FoodData Central row, the
+         low-sodium and soft-chewable constraints are checked against real
+         numbers (mg sodium /100g) and our curated texture whitelist.
+      2. Keyword rule layer (fallback + overlap): the existing _HEALTH_RULES
+         matching still runs. A FAIL from EITHER layer fails the constraint —
+         e.g. "soy-glazed tofu" matches USDA tofu (low sodium) but the keyword
+         "soy-glazed" still flags high-sodium seasoning, so the dish is flagged.
+    """
     haystack_parts = [entity.get("name", ""), *(entity.get("tags") or [])]
     desc = entity.get("description") or ""
     if desc:
         haystack_parts.append(desc)
     haystack = " ".join(haystack_parts).lower()
+
+    # USDA numeric layer — attach real nutrition facts when we can match a food.
+    usda_row = match_usda_food(haystack)
+    usda_out: dict[str, Any] | None = None
+    if usda_row:
+        usda_out = {
+            "source": "usda-fdc",
+            "matched": usda_row.get("name"),
+            "per_100g": usda_row.get("per_100g"),
+            "texture": usda_row.get("texture"),
+        }
 
     labels: list[str] = []
     warnings: list[str] = []
@@ -99,7 +129,20 @@ def _annotate_health(
         hit_prefer = any(k in haystack for k in prefer)
         hit_avoid = any(k in haystack for k in avoid)
         if label == "soft_chewable":
-            if hit_prefer and not hit_avoid:
+            if usda_row:
+                ok, note = texture_check(usda_row)
+                if usda_row.get("texture") == "hard":
+                    passes = False
+                    warnings.append(note)
+                elif usda_row.get("texture") == "soft":
+                    labels.append("软食友好")
+                    labels.append(note)
+                elif hit_avoid and not hit_prefer:
+                    passes = False
+                    warnings.append("可能过硬/难咀嚼（如油炸、硬壳、坚果）。")
+                else:
+                    labels.append("软食（需进一步确认）")
+            elif hit_prefer and not hit_avoid:
                 labels.append("软食友好")
             elif hit_avoid and not hit_prefer:
                 passes = False
@@ -107,7 +150,19 @@ def _annotate_health(
             else:
                 labels.append("软食（需进一步确认）")
         elif label == "low_sodium":
-            if hit_avoid:
+            if usda_row:
+                ok, note = sodium_check(usda_row)
+                if ok:
+                    labels.append(note)
+                else:
+                    passes = False
+                    warnings.append(note)
+                # Keyword layer still runs: seasoned dishes match low-sodium
+                # ingredients (tofu) yet are cooked with soy sauce → still fail.
+                if hit_avoid:
+                    passes = False
+                    warnings.append("可能高钠（腌制/烟熏/酱料等）。")
+            elif hit_avoid:
                 passes = False
                 warnings.append("可能高钠（腌制/烟熏/酱料等）。")
             else:
@@ -122,7 +177,7 @@ def _annotate_health(
     if any(t in haystack for t in _SENIOR_HEALTHY_TAGS):
         labels.append("清淡健康")
 
-    return {"passes": passes, "labels": labels, "warnings": warnings}
+    return {"passes": passes, "labels": labels, "warnings": warnings, "usda": usda_out}
 
 
 # High-value food-medication interaction rules (dining domain, keyword match only).
@@ -149,6 +204,18 @@ _MED_RULES: dict[str, dict[str, list[str] | str]] = {
     "licorice": {
         "keywords": ["licorice", "liquorice"],
         "warning": "Contains licorice, which can interact with digoxin and diuretics.",
+    },
+    "warfarin_green_tea": {
+        "keywords": ["green tea", "matcha", "white tea"],
+        "warning": "Green tea contains vitamin K, which can interact with blood thinners like warfarin.",
+    },
+    "ace_inhibitor_potassium": {
+        "keywords": ["banana", "avocado", "sweet potato", "spinach", "potassium"],
+        "warning": "High in potassium, which can accumulate with ACE inhibitor blood pressure medications.",
+    },
+    "maoi_cheese": {
+        "keywords": ["aged cheese", "brie", "cheddar", "parmesan", "blue cheese", "soy sauce", "fermented"],
+        "warning": "Contains tyramine-rich aged cheese or fermented foods, which can interact with MAOI antidepressants.",
     },
 }
 
@@ -254,6 +321,7 @@ async def recommend_meals(
             "passes": health["passes"] and med["passes"],
             "labels": health["labels"] + med["labels"],
             "warnings": health["warnings"] + med["warnings"],
+            "usda": health.get("usda"),
         }
         recommendations.append(entity)
 
@@ -296,6 +364,7 @@ async def recommend_meals(
         "explanation": explanation,
         "disclaimer": MEDICATION_DISCLAIMER,
         "filtered_non_dining": filtered_non_dining,
+        "data_source": "live" if client.enabled else "preview",
     }
 
 
@@ -454,9 +523,76 @@ async def score_fit(client: QlooClient, signal_ids: list[str], candidate_ids: li
             order[eid] = i
 
     scores: dict[str, float] = {}
-    total = len(order)
     for eid, rank in order.items():
-        # Non-linear so the top pick is clearly the best; every result keeps a
-        # meaningful floor so rankings stay honest rather than collapsing to 0.
-        scores[eid] = max(0.05, round(1.0 - (rank / max(total, 1)) * 0.85, 3))
+        scores[eid] = max(0.05, round(1.0 - (rank / max(len(order), 1)) * 0.85, 3))
     return scores
+
+
+async def build_multi_domain_itinerary(
+    client: QlooClient,
+    cultural_likes: list[str],
+    location: str | None,
+    constraints: dict[str, Any],
+    take: int = 6,
+) -> dict[str, Any]:
+    """Build a multi-domain itinerary: dining + travel + fashion anchored on cultural likes.
+
+    Returns a structured itinerary with cultural-fit scores per domain,
+    so the user can see how well each recommendation matches Maria's taste profile
+    across domains — not just dining.
+    """
+    from app.services.qloo.taste import search_cultural_entities, _extract_entities
+
+    # 1. Resolve cultural anchors
+    anchor_ids: list[str] = []
+    for like in cultural_likes[:5]:
+        results = await search_cultural_entities(client, like, limit=1)
+        if results:
+            eid = results[0].get("entity_id", "")
+            if eid and eid not in anchor_ids:
+                anchor_ids.append(eid)
+
+    if not anchor_ids:
+        return {"itinerary": [], "data_source": "preview"}
+
+    # 2. Query each domain via cross-domain insights
+    domain_queries: list[tuple[str, str]] = [
+        ("dining", "urn:entity:place"),
+        ("travel", "urn:entity:destination"),
+        ("fashion", "urn:entity:brand"),
+        ("podcast", "urn:entity:podcast"),
+        ("book", "urn:entity:book"),
+    ]
+
+    itinerary: list[dict[str, Any]] = []
+    for domain, etype in domain_queries:
+        payload = await client.insights(
+            filter_type=etype,
+            signal_entities=anchor_ids,
+            take=take,
+        )
+        if "error" in payload:
+            continue
+        entities = _extract_entities(payload)
+        for i, e in enumerate(entities):
+            eid = e.get("entity_id", "")
+            name = e.get("name", "")
+            popularity = e.get("popularity")
+            # Derive cultural fit from ranking position
+            fit = max(0.05, round(1.0 - (i / max(len(entities), 1)) * 0.85, 3))
+            itinerary.append({
+                "domain": domain,
+                "entity_id": eid,
+                "name": name,
+                "fit": fit,
+                "popularity": popularity,
+                "type": etype,
+            })
+
+    # Sort by fit score descending
+    itinerary.sort(key=lambda x: x["fit"], reverse=True)
+    return {
+        "itinerary": itinerary[:take * 3],
+        "anchor_count": len(anchor_ids),
+        "data_source": "live" if client.enabled else "preview",
+    }

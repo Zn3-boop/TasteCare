@@ -5,16 +5,19 @@ import { DiscoverTab } from './components/tabs/DiscoverTab'
 import { AgentTab } from './components/tabs/AgentTab'
 import { WhyQlooTab } from './components/tabs/WhyQlooTab'
 import { AblationTab } from './components/tabs/AblationTab'
+import { CommunityTab } from './components/tabs/CommunityTab'
 import { Header } from './components/Header'
 import { TabNav } from './components/TabNav'
 import { type Tab } from './components/tabs'
 import { Footer } from './components/Footer'
 import { DisclaimerBanner } from './components/DisclaimerBanner'
 import { ToastProvider } from './components/ToastProvider'
+import { A11yToolbar } from './components/A11yToolbar'
 import { useQlooStatus } from './hooks/useQlooStatus'
 import { useTasteCare } from './hooks/useTasteCare'
 import { useTastes } from './hooks/useTastes'
 import { useChatAgent } from './hooks/useChatAgent'
+import { useCommunity } from './hooks/useCommunity'
 
 function AppShell() {
   const [tab, setTab] = useState<Tab>('tastecare')
@@ -27,6 +30,7 @@ function AppShell() {
   const tasteCare = useTasteCare({ setLoading, setError })
   const tastes = useTastes({ setLoading, setError })
   const chat = useChatAgent({ setLoading, setError })
+  const community = useCommunity()
 
   useEffect(() => {
     chat.chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -49,6 +53,9 @@ function AppShell() {
 
       {error && <div style={{ color: '#F87171', fontSize: 12, marginBottom: 12, textAlign: 'center', padding: '8px 16px', borderRadius: 8, background: '#7F1D1D22', border: '1px solid #7F1D1D44' }}>{error}</div>}
 
+      {/* .app-content marks the reading area — used by the A11y toolbar for
+          "body-text only" scaling and read-aloud sentence highlighting. */}
+      <main className="app-content">
       {tab === 'tastecare' && (
         <SeniorDiningTab
           tcLikes={tasteCare.tcLikes}
@@ -107,6 +114,7 @@ function AppShell() {
           onFeedback={chat.handleFeedback}
           loading={loading}
           onOpenDiscover={() => setTab('discover')}
+          memory={chat.memory}
         />
       )}
 
@@ -120,6 +128,12 @@ function AppShell() {
 
       {tab === 'ablation' && <AblationTab />}
 
+      {tab === 'community' && (
+        <CommunityTab community={community} qlooEnabled={!!status?.enabled} />
+      )}
+      </main>
+
+      <A11yToolbar />
       <Footer />
     </div>
   )

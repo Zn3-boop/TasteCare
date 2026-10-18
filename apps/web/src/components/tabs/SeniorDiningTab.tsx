@@ -3,6 +3,7 @@ import type { TasteCareResult } from '../../api'
 import {
   CONSTRAINT_META, DISCLAIMER_EN, DISCLAIMER_ZH,
   EN_CONSTRAINT_ICON, EN_CONSTRAINT_LABEL,
+  SENIOR_SCENARIO_PROMPTS,
 } from '../../constants'
 import { SkeletonRow, TasteCareCard } from '../ui'
 import { sx } from '../sx'
@@ -41,6 +42,21 @@ export function SeniorDiningTab(props: Props) {
 
   return (
     <section>
+      <div style={{ marginBottom: 16 }}>
+        <label style={sx.label}>Quick scenarios (click to try)</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {SENIOR_SCENARIO_PROMPTS.map((prompt, i) => (
+            <button
+              key={i}
+              onClick={() => setTcLikes(prompt)}
+              style={{ fontSize: 11, padding: '6px 12px', borderRadius: 8, background: '#1F2937', color: '#D1D5DB', border: '1px solid #374151', cursor: 'pointer', textAlign: 'left', maxWidth: 280 }}
+              title={prompt}
+            >
+              🎯 {i + 1}. {prompt.slice(0, 40)}…
+            </button>
+          ))}
+        </div>
+      </div>
       <div style={{ ...sx.card, marginBottom: 20, border: '1px solid #FF6B3533', background: 'linear-gradient(135deg, #FF6B3510, #111827)' }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' as const }}>
           <div style={{ fontSize: 48, lineHeight: 1 }}>👩</div>
@@ -121,8 +137,11 @@ export function SeniorDiningTab(props: Props) {
           {/* 默认主链路：Qloo 溯源证据（占位实体，后端 taste_entities 透出后替换为真实值） */}
           <div style={{ marginBottom: 4 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: '#065F46', color: '#6EE7B7', whiteSpace: 'nowrap' }}>
-                ✅ Qloo taste graph — recommendations grounded live
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: tcResult.data_source === 'live' ? '#065F46' : '#78350F', color: tcResult.data_source === 'live' ? '#6EE7B7' : '#FCD34D', whiteSpace: 'nowrap' }}>
+                {tcResult.data_source === 'live' ? '🟢 Live Qloo data' : '⚠️ Demo preview data'}
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: '#1F2937', color: '#D1D5DB', whiteSpace: 'nowrap' }}>
+                🎯 Fit scores = Qloo cultural affinity
               </span>
             </div>
             <QlooGroundingPanel
@@ -154,7 +173,7 @@ export function SeniorDiningTab(props: Props) {
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tcResult.recommendations.map((r, i) => <TasteCareCard key={r.id} rec={r} rank={i + 1} activeConstraints={tcResult.active_constraints || []} />)}
+            {tcResult.recommendations.map((r, i) => <TasteCareCard key={r.id} rec={r} rank={i + 1} activeConstraints={tcResult.active_constraints || []} showFitScore />)}
           </div>
           {tcResult.recommendations.length === 0 && (
             <div style={{ textAlign: 'center', padding: 32, color: '#6B7280', fontSize: 14 }}>

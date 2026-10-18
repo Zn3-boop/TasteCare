@@ -17,7 +17,7 @@ export function QlooGroundingPanel({ tasteEntities, tasteDataSource, qlooContext
   return (
     <div style={{ marginTop: 8, width: '100%', maxWidth: 340, ...sx.card, padding: 12, border: `1px solid ${live ? '#05966944' : '#B4530944'}`, background: live ? '#0596690c' : '#7C2D120c' }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' as const, color: accent, marginBottom: 6 }}>
-        {live ? '● Live Qloo data' : '⚠ Demo preview data'}
+        {live ? '● Live Qloo data' : tasteDataSource === '' ? '○ No Qloo data' : '⚠ Demo preview data'}
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB', marginBottom: 6, lineHeight: 1.4 }}>

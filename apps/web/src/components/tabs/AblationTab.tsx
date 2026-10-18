@@ -41,8 +41,11 @@ export function AblationTab() {
       <div style={{ ...sx.card, marginBottom: 20, textAlign: 'center', background: 'linear-gradient(135deg, #7C2D1210, #111827)', border: '1px solid #B4530944' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F59E0B', marginBottom: 8 }}>Ablation Comparison</h2>
         <p style={{ fontSize: 14, color: '#9CA3AF', lineHeight: 1.6 }}>
-          Side-by-side: <strong style={{ color: '#FCA5A5' }}>Variant A</strong> (pure LLM + health rules, <em>no Qloo</em>) vs{' '}
-          <strong style={{ color: '#6EE7B7' }}>Variant B</strong> (LLM + Qloo taste graph + health rules). See the difference cultural grounding makes.
+          Side-by-side: <strong style={{ color: '#FCA5A5' }}>Variant A</strong> (rule-based health screening, <em>no Qloo</em>) vs{' '}
+          <strong style={{ color: '#6EE7B7' }}>Variant B</strong> (Qloo taste graph + health rules). See the difference cultural grounding makes.
+        </p>
+        <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
+          💡 This comparison needs <strong style={{ color: '#6EE7B7' }}>only QLOO_API_KEY</strong> — no LLM key. Variant A is pure rules; Variant B runs the live TasteCare pipeline.
         </p>
         {data && data.data_source === 'preview' && (
           <p style={{ fontSize: 11, color: '#FCD34D', marginTop: 6, fontStyle: 'italic' }}>

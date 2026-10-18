@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
-import { chatWithAgent, sendTasteFeedback } from '../api'
+import { chatWithAgent, chatWithoutQloo, sendTasteFeedback } from '../api'
 import { useToast } from './useToast'
+import { useTasteMemory } from './useTasteMemory'
 
 export type ChatMsg = {
   id: string
@@ -19,6 +20,7 @@ type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
  */
 export function useChatAgent({ setLoading, setError }: Busy) {
   const toast = useToast()
+  const memory = useTasteMemory()
   const [chatMsg, setChatMsg] = useState('')
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -42,6 +44,26 @@ export function useChatAgent({ setLoading, setError }: Busy) {
     setChatMsg(''); setLoading(false)
   }, [chatMsg, setLoading, setError])
 
+  // Ablation mode: call LLM without Qloo cultural grounding
+  const doChatWithoutQloo = useCallback(async () => {
+    if (!chatMsg.trim()) return
+    setLoading(true); setError('')
+    setChatHistory(h => [...h, { id: crypto.randomUUID(), role: 'user', text: chatMsg }])
+    try {
+      const r = await chatWithoutQloo(chatMsg)
+      setChatHistory(h => [...h, {
+        id: crypto.randomUUID(),
+        role: 'agent-no-qloo',
+        text: r.reply || '',
+        tasteEntities: [],
+        tasteDataSource: 'no_qloo',
+        qlooContext: null,
+        feedback: null,
+      }])
+    } catch (e) { setError(String(e)) }
+    setChatMsg(''); setLoading(false)
+  }, [chatMsg, setLoading, setError])
+
   const handleFeedback = useCallback(async (messageId: string, thumb: 'up' | 'down') => {
     const target = chatHistory.find(m => m.id === messageId)
     if (!target) return
@@ -51,6 +73,13 @@ export function useChatAgent({ setLoading, setError }: Busy) {
       const hint = res.data_source === 'preview'
         ? 'Feedback saved to local preview memory'
         : 'Feedback saved to Qloo taste profile'
+      if (thumb === 'up' && target.tasteEntities && target.tasteEntities.length > 0) {
+        for (const name of target.tasteEntities.slice(0, 3)) {
+          // entity_id = name for the preview/local memory layer so the same liked
+          // taste is deduped when the user 👍's it again (compounding over time).
+          memory.addLiked(name, name, '')
+        }
+      }
       toast(`${thumb === 'up' ? '👍' : '👎'} ${hint}`, 'success')
     } catch (e) {
       setChatHistory(h => h.map(m => m.id === messageId ? { ...m, feedback: null } : m))
@@ -58,5 +87,5 @@ export function useChatAgent({ setLoading, setError }: Busy) {
     }
   }, [chatHistory, toast])
 
-  return { chatMsg, setChatMsg, chatHistory, setChatHistory, chatEndRef, doChat, handleFeedback }
+  return { chatMsg, setChatMsg, chatHistory, setChatHistory, chatEndRef, doChat, doChatWithoutQloo, handleFeedback, memory }
 }

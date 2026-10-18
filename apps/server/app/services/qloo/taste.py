@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from app.services.qloo.client import QlooClient, get_qloo_client
+from app.services.qloo.feedback import FeedbackStore
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ async def get_taste_based_recommendations(
     seed_entity_ids: list[str],
     target_domain: str | None = None,
     limit: int = 10,
+    store: FeedbackStore | None = None,
 ) -> dict[str, Any]:
     if not seed_entity_ids:
         return {"recommendations": [], "source": "qloo", "error": "no_seed_entities"}
@@ -149,6 +151,7 @@ async def get_taste_based_recommendations(
             signal_entities=seed_entity_ids,
             take=limit,
             filter_type=filter_type,
+            store=store,
         )
     else:
         payload = await client.insights(
@@ -179,13 +182,14 @@ async def get_cross_domain_discovery(
     seed_entity_ids: list[str],
     domains: list[str] | None = None,
     per_domain_limit: int = 5,
+    store: FeedbackStore | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     if domains is None:
-        domains = ["music", "film", "dining", "fashion", "travel"]
+        domains = ["music", "film", "dining", "fashion", "travel", "podcast", "book"]
     results: dict[str, list[dict[str, Any]]] = {}
     for domain in domains:
         rec = await get_taste_based_recommendations(
-            client, seed_entity_ids, target_domain=domain, limit=per_domain_limit,
+            client, seed_entity_ids, target_domain=domain, limit=per_domain_limit, store=store,
         )
         results[domain] = rec.get("recommendations", [])
     return results
@@ -243,6 +247,7 @@ async def apply_taste_preferences(
     signal_entities: list[str],
     take: int = 10,
     filter_type: str | None = None,
+    store: FeedbackStore | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Run /v2/insights with the user's live 👍/👎 overlay applied.
@@ -253,10 +258,13 @@ async def apply_taste_preferences(
       on entity_id (client-side exclusion), so 👎 recommendations stop appearing.
     Returns the raw insights payload (with disliked entries removed from results).
     """
-    from app.services.qloo.feedback import get_disliked_taste_names, get_liked_taste_names
+    if store is None:
+        from app.services.qloo.feedback import get_feedback_store
 
-    liked = await _resolve_taste_preference_entities(client, list(get_liked_taste_names()))
-    disliked = await _resolve_taste_preference_entities(client, list(get_disliked_taste_names()))
+        store = get_feedback_store()
+
+    liked = await _resolve_taste_preference_entities(client, list(store.get_liked_taste_names()))
+    disliked = await _resolve_taste_preference_entities(client, list(store.get_disliked_taste_names()))
 
     # Liked go first (highest weight in Qloo's signal list); dedupe by UUID.
     signals: list[str] = []
@@ -301,6 +309,7 @@ async def build_cultural_context_for_llm(
     user_likes: list[str],
     target_domain: str | None = None,
     limit: int = 8,
+    store: FeedbackStore | None = None,
 ) -> str:
     if not client.enabled:
         return ""
@@ -314,7 +323,7 @@ async def build_cultural_context_for_llm(
     if not entity_ids:
         return ""
     rec = await get_taste_based_recommendations(
-        client, entity_ids, target_domain=target_domain, limit=limit,
+        client, entity_ids, target_domain=target_domain, limit=limit, store=store,
     )
     recommendations = rec.get("recommendations", [])
     if not recommendations:
@@ -364,8 +373,16 @@ _PREVIEW_BRIDGE: dict[str, list[dict[str, Any]]] = {
         {"name": "Classic Fedora", "popularity": 0.84, "why": "The fedora is practically Sinatra's emblem — film noir and jazz stage in one silhouette."},
         {"name": "Cuff-linked Dress Shirt", "popularity": 0.78, "why": "Evening Rat Pack wear: crisp, tailored, understated glamour."},
     ],
+    "podcast": [
+        {"name": "Rat Pack Radio Shows", "popularity": 0.85, "why": "Sinatra's live radio broadcasts defined the 1940s-50s podcast-like entertainment format."},
+        {"name": "Jazz Talk Radio", "popularity": 0.79, "why": "The conversational jazz format mirrors the intimacy of supper club performances."},
+    ],
+    "book": [
+        {"name": "The Great Gatsby", "popularity": 0.82, "why": "The Jazz Age novel Sinatra embodied — pre-war American glamour and melancholy."},
+        {"name": "On the Waterfront Script Books", "popularity": 0.71, "why": "Sinatra's iconic role cemented New York dockworker literature in the cultural canon."},
+    ],
 }
-_BRIDGE_DOMAIN_ORDER = ["music", "dining", "film", "travel", "fashion"]
+_BRIDGE_DOMAIN_ORDER = ["music", "dining", "film", "travel", "fashion", "podcast", "book"]
 
 
 async def get_cross_domain_bridge_graph(

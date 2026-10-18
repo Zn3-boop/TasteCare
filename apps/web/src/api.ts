@@ -58,6 +58,41 @@ export async function qlooStatus() {
   return await resp.json()
 }
 
+export interface EntityDetails {
+  id: string
+  name: string
+  type: string
+  domain?: string
+  tags?: string[]
+  description?: string
+  popularity?: number
+}
+
+export async function getEntityDetails(entityId: string): Promise<EntityDetails | null> {
+  const resp = await fetch(`${API_BASE}/qloo/entity/${encodeURIComponent(entityId)}`)
+  if (!resp.ok) return null
+  return await resp.json()
+}
+
+export async function getTasteProfile(entityIds: string[]) {
+  const resp = await fetch(`${API_BASE}/qloo/taste-profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_ids: entityIds }),
+  })
+  if (!resp.ok) throw new Error(`Taste profile failed: ${resp.status}`)
+  return await resp.json()
+}
+
+export async function getSimilarity(entityIds: string[], targetType?: string) {
+  const resp = await fetch(`${API_BASE}/qloo/similarity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_ids: entityIds, target_type: targetType }),
+  })
+  if (!resp.ok) throw new Error(`Similarity failed: ${resp.status}`)
+  return await resp.json()
+}
 export interface ChatAgentResponse {
   reply: string
   taste_entities?: string[]
@@ -76,7 +111,24 @@ export async function chatWithAgent(message: string): Promise<ChatAgentResponse>
   return await resp.json()
 }
 
+// Ablation: chat WITHOUT Qloo cultural grounding (for comparison)
+export async function chatWithoutQloo(message: string): Promise<ChatAgentResponse> {
+  const resp = await fetch(`${API_BASE}/chat/agent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, disable_qloo: true }),
+  })
+  if (!resp.ok) throw new Error(`Chat without Qloo failed: ${resp.status}`)
+  return await resp.json()
+}
 // ===== TasteCare (senior dining, Qloo-grounded) =====
+export interface UsdaNutrition {
+  source: 'usda-fdc'
+  matched: string
+  per_100g: { sodium_mg: number; protein_g: number; fiber_g: number; kcal: number }
+  texture: 'soft' | 'medium' | 'hard'
+}
+
 export interface TasteCareRecommendation {
   id: string
   name: string
@@ -88,7 +140,7 @@ export interface TasteCareRecommendation {
   fit_source?: 'qloo-popularity' | 'qloo-affinity'
   description?: string
   address?: string
-  health?: { passes: boolean; labels: string[]; warnings: string[] }
+  health?: { passes: boolean; labels: string[]; warnings: string[]; usda?: UsdaNutrition | null }
   // Two-part rationale (from answer_generation_node); optional so cards fall back gracefully.
   cultural_match?: string
   safety_validation?: string
@@ -101,6 +153,7 @@ export interface TasteCareResult {
   active_constraints?: string[]
   explanation?: string
   disclaimer?: string
+  data_source?: 'live' | 'preview' | string
 }
 
 export async function tasteCareRecommend(input: {
@@ -188,5 +241,87 @@ export async function fetchAblationComparison(): Promise<AblationComparisonRespo
     body: JSON.stringify({}),
   })
   if (!resp.ok) throw new Error(`Ablation comparison failed: ${resp.status}`)
+  return await resp.json()
+}
+
+// ===== Community matching (Qloo-powered, mutual opt-in) =====
+export interface CommunityMatch {
+  peer_id: string
+  name: string
+  tagline: string
+  location?: string
+  cultural_likes: string[]
+  constraints: Record<string, boolean>
+  shared_anchors: string[]
+  shared_constraints: string[]
+  affinity: number
+}
+
+export interface CommunityMatchResponse {
+  matches: CommunityMatch[]
+  user_likes_resolved: { name: string; domain: string }[]
+  data_source: 'live' | 'preview' | string
+}
+
+export async function communityMatch(input: {
+  cultural_likes: string[]
+  location?: string
+  constraints?: Record<string, boolean>
+  limit?: number
+}): Promise<CommunityMatchResponse> {
+  const resp = await fetch(`${API_BASE}/community/match`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cultural_likes: input.cultural_likes,
+      location: input.location || undefined,
+      constraints: input.constraints || {},
+      limit: input.limit || 5,
+    }),
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null)
+    throw new Error(body?.detail || `Community match failed: ${resp.status}`)
+  }
+  return await resp.json()
+}
+
+export interface CommunityConnectResponse {
+  ok: boolean
+  peer_id: string
+  status: string
+  message: string
+  error?: string | null
+}
+
+export async function communityConnect(peerId: string): Promise<CommunityConnectResponse> {
+  const resp = await fetch(`${API_BASE}/community/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ peer_id: peerId }),
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null)
+    throw new Error(body?.detail || `Connect failed: ${resp.status}`)
+  }
+  return await resp.json()
+}
+
+export async function communityAccept(peerId: string): Promise<CommunityConnectResponse> {
+  const resp = await fetch(`${API_BASE}/community/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ peer_id: peerId }),
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null)
+    throw new Error(body?.detail || `Accept failed: ${resp.status}`)
+  }
+  return await resp.json()
+}
+
+export async function communityConnections(): Promise<{ connections: { peer_id: string; peer_name: string; status: string }[] }> {
+  const resp = await fetch(`${API_BASE}/community/connections`)
+  if (!resp.ok) return { connections: [] }
   return await resp.json()
 }
