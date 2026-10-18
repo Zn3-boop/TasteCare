@@ -21,7 +21,7 @@ TasteCare fixes that. The agent resolves Maria's cultural anchors (Sinatra, jazz
 
 ## Repository Structure
 
-This repo is organized as **Agent Skeleton + TasteCare Subsystem**. The `apps/server/app/services/qloo/` directory is the TasteCare core — the culturally intelligent dining recommendation engine. The surrounding agent skeleton (graph, LLM client, RAG pipeline) provides the orchestration infrastructure that TasteCare plugs into. Legacy desktop-agent code has been cleaned out; only TasteCare-relevant components remain.
+This repo is organized as **Agent Skeleton + TasteCare Subsystem**. The `apps/server/app/services/qloo/` directory is the TasteCare core — the culturally intelligent dining recommendation engine. The surrounding agent skeleton (graph, LLM client, RAG pipeline) provides the orchestration infrastructure that TasteCare plugs into. Legacy desktop-agent code has been cleaned out; only TasteCare-relevant components remain. A `docs/` folder holds the **[architecture diagrams](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ARCHITECTURE.md)**, the **[LangGraph agent-workflow spec](https://github.com/Zn3-boop/TasteCare/blob/main/docs/QLOO_AGENT_GRAPH.md)**, and the **[ablation methodology](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ABLATION_EXPERIMENT.md)** used to evidence Qloo's contribution.
 
 ## The Problem
 
@@ -85,9 +85,36 @@ Our core recommendation workflow is orchestrated with **LangGraph StateGraph**, 
 
 Peer matching uses lightweight **numpy vector search for demo** (sentence-transformers + all-MiniLM-L6-v2 local model, plain numpy cosine — no FAISS in the hot path). A fully-tested **FAISS IndexFlatIP scaling plan** is pre-written as offline expansion code, ready to be enabled once peer count exceeds 1000.
 
-## Ablation Experiment
+## Ablation Experiment — the difference is Qloo, measured
 
-We implement strict **single-variable ablation** to demonstrate the performance gap between with/without Qloo cultural entity parsing: `test_chat_ablation_consistency.py` holds the system prompt, taste-profile likes, temperature, and task type constant and toggles only the `[Qloo Cultural Context]` block — the only difference between the two branches is the Qloo grounding itself.
+We don't just claim Qloo makes us better; we prove it with strict
+**single-variable ablation** at two levels:
+
+### Level 1 — unit test (`test_chat_ablation_consistency.py`)
+
+The with-Qloo branch and the `disable_qloo=true` baseline fire with identical
+session/profile state. Only the `[Qloo Cultural Context]` block can differ:
+
+| Variable | With Qloo | Without Qloo |
+|---|---|---|
+| System prompt | `CULTURAL_RECOMMENDATION_SYSTEM_PROMPT` | **identical** |
+| User taste-profile likes | injected | **identical** |
+| `temperature` / `task_type` | 0.2 / `qloo_cultural_recommendation` | **identical** |
+| Raw user message | `"Please suggest a low-sodium dinner."` | **identical** |
+| **Qloo grounding** | **`[Qloo Cultural Context]` injected** | **absent** — the ONLY difference |
+
+### Level 2 — live demo method (`POST /api/v1/ablation/comparison`)
+
+Same senior-dining prompts → **Variant A** (pure rule-based health screening,
+no Qloo, no LLM) vs **Variant B** (the real Qloo TasteCare pipeline), sharing
+identical candidates — so the on-screen gap is exactly the cultural grounding.
+The web **Ablation tab** renders both side-by-side in one click, with an honest
+`● Live Qloo data` vs clearly-labeled preview indicator.
+
+> Run it yourself: `cd apps/server && python -m pytest tests/test_chat_ablation_consistency.py -v`, or click **"▶ Run Ablation Comparison"** in the hosted demo.
+
+Full methodology, the controlled-variable table, and threats to validity are in
+[`docs/ABLATION_EXPERIMENT.md`](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ABLATION_EXPERIMENT.md).
 
 ## Try It
 
