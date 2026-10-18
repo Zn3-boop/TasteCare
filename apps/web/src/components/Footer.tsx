@@ -1,4 +1,4 @@
-/** 底部版权/说明区。 */
+/** Bottom footer / credits. */
 export function Footer() {
   return (
     <footer style={{ marginTop: 48, textAlign: 'center', fontSize: 11, color: '#4B5563', paddingBottom: 24 }}>

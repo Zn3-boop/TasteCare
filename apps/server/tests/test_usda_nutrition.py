@@ -101,13 +101,13 @@ class TestSodiumCheck:
         row = match_usda_food("spaghetti")
         ok, note = sodium_check(row)
         assert ok is True
-        assert "低钠" in note and "1mg" in note
+        assert "Low sodium" in note and "1mg" in note
 
     def test_bacon_high_sodium_fails(self):
         row = match_usda_food("bacon")
         ok, note = sodium_check(row)
         assert ok is False
-        assert "钠偏高" in note
+        assert "Sodium high" in note
 
     def test_tofu_passes(self):
         row = match_usda_food("tofu")
@@ -162,7 +162,7 @@ class TestAnnotateHealthUsdaIntegration:
             ["low_sodium"],
         )
         assert result["passes"] is False
-        assert any("钠偏高" in w for w in result["warnings"])
+        assert any("Sodium high" in w for w in result["warnings"])
 
     def test_soft_keeps_standard_label(self):
         result = _annotate_health(
@@ -170,7 +170,7 @@ class TestAnnotateHealthUsdaIntegration:
             ["soft_chewable"],
         )
         assert result["passes"] is True
-        assert "软食友好" in result["labels"]
+        assert "Soft food friendly" in result["labels"]
 
     def test_hard_flagged_soft_constraint(self):
         result = _annotate_health(
@@ -194,7 +194,7 @@ class TestAnnotateHealthUsdaIntegration:
             ["low_sodium"],
         )
         assert result["passes"] is True
-        assert any("低钠" in lbl for lbl in result["labels"])
+        assert any("Low sodium" in lbl for lbl in result["labels"])
 
 
 class TestMedicationBoundary:

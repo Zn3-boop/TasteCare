@@ -4,6 +4,8 @@
 // relationship. This is a pure presentational component: it receives a
 // ready-to-draw graph and labels it honestly (`live` vs `preview`) so the no-key
 // demo never masquerades demo data as Qloo output.
+// `compact` renders JUST the constellation (no header / legend / detail panel)
+// so the first-screen hero can embed the exact same graph.
 
 import { useMemo, useState } from 'react'
 import { DOMAIN_COLORS, type DomainStatus, DOMAIN_LIST } from '../constants'
@@ -22,6 +24,7 @@ type Props = {
   loading?: boolean
   domainStatuses?: Record<string, DomainStatus>
   onNodeClick?: (node: { entity_id: string; name: string; domain: string; why?: string }) => void
+  compact?: boolean
 }
 
 const VIEW_W = 780
@@ -56,7 +59,7 @@ function domainBadge(status: DomainStatus, domain: string) {
   )
 }
 
-export function TasteBridge({ centerLabel, zones, dataSource, loading, domainStatuses, onNodeClick }: Props) {
+export function TasteBridge({ centerLabel, centerSub, zones, dataSource, domainStatuses, onNodeClick, compact = false }: Props) {
   const [hovered, setHovered] = useState<LayoutNode | null>(null)
   const [selected, setSelected] = useState<LayoutNode | null>(null)
 
@@ -94,6 +97,39 @@ export function TasteBridge({ centerLabel, zones, dataSource, loading, domainSta
 
   const detail = hovered || selected
 
+  // Boost SVG text sizes in compact mode so the constellation stays readable when
+  // the 780-unit viewBox renders at a narrow hero-column width (~440px).
+  const graph = nodes.length > 0 ? (
+    <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} style={{ width: '100%', height: 'auto', background: '#0b1020', borderRadius: 12, border: '1px solid #1F2937', display: 'block' }}>
+      {nodes.map(n => (
+        <line key={`e-${n.entity_id}`} x1={CX} y1={CY} x2={n.x} y2={n.y}
+          stroke={n.color} strokeOpacity={0.35} strokeWidth={1.4} />
+      ))}
+      {[MIN_R, (MIN_R + MAX_R) / 2, MAX_R].map(r => (
+        <circle key={r} cx={CX} cy={CY} r={r} fill="none" stroke="#1F2937" strokeWidth={1} strokeDasharray="3 5" />
+      ))}
+      <circle cx={CX} cy={CY} r={30} fill="#FF6B35" fillOpacity={0.18} stroke="#FF6B35" strokeWidth={2} />
+      <text x={CX} y={CY + 4} textAnchor="middle" fill="#fff" fontSize={compact ? 18 : 10} fontWeight={700}>{centerLabel.length > 14 ? centerLabel.slice(0, 13) + '…' : centerLabel}</text>
+      {nodes.map(n => (
+        <g key={n.entity_id} onMouseEnter={() => { setHovered(n); onNodeClick?.(n) }}
+          onMouseLeave={() => setHovered(null)}
+          onClick={() => setSelected(n)}>
+          <circle cx={n.x} cy={n.y} r={n.r * 1.7} fill="transparent" />
+          <circle cx={n.x} cy={n.y} r={n.r} fill={n.color} fillOpacity={0.85} stroke="#fff" strokeOpacity={0.6} strokeWidth={1.2} />
+          <text x={n.x} y={n.y + n.r + 11} textAnchor="middle" fontSize={compact ? 17 : 9.5} fill="#D1D5DB">{n.name.length > 20 ? n.name.slice(0, 19) + '…' : n.name}</text>
+        </g>
+      ))}
+    </svg>
+  ) : null
+
+  if (compact) {
+    return graph || (
+      <div style={{ padding: 28, textAlign: 'center', color: '#6B7280', fontSize: 12, fontStyle: 'italic' }}>
+        🌌 Add taste anchors to see the constellation.
+      </div>
+    )
+  }
+
   if (!nodes.length) {
     return (
       <div style={{ ...sx.card, textAlign: 'center', padding: 40, color: '#6B7280', fontSize: 14 }}>
@@ -115,6 +151,9 @@ export function TasteBridge({ centerLabel, zones, dataSource, loading, domainSta
           One taste anchor, <strong style={{ color: dataSource === 'live' ? '#6EE7B7' : '#FCD34D' }}>radiating across every cultural domain</strong>. No LLM can draw these
           bridges without a taste graph — this is the core of Qloo's advantage.
         </p>
+        {centerSub && (
+          <p style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>{centerSub}</p>
+        )}
         {dataSource === 'preview' && (
           <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#7C2D1222', border: '1px solid #B4530944' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#FCD34D' }}>⚠ Demo preview data</span>
@@ -129,27 +168,7 @@ export function TasteBridge({ centerLabel, zones, dataSource, loading, domainSta
         )}
       </div>
 
-      <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} style={{ width: '100%', height: 'auto', background: '#0b1020', borderRadius: 12, border: '1px solid #1F2937' }}>
-        {nodes.map(n => (
-          <line key={`e-${n.entity_id}`} x1={CX} y1={CY} x2={n.x} y2={n.y}
-            stroke={n.color} strokeOpacity={0.35} strokeWidth={1.4} />
-        ))}
-        {[MIN_R, (MIN_R + MAX_R) / 2, MAX_R].map(r => (
-          <circle key={r} cx={CX} cy={CY} r={r} fill="none" stroke="#1F2937" strokeWidth={1} strokeDasharray="3 5" />
-        ))}
-        <circle cx={CX} cy={CY} r={30} fill="#FF6B35" fillOpacity={0.18} stroke="#FF6B35" strokeWidth={2} />
-        <text x={CX} y={CY + 4} textAnchor="middle" fill="#fff" fontSize="10" fontWeight={700}>{centerLabel.length > 14 ? centerLabel.slice(0, 13) + '…' : centerLabel}</text>
-        {nodes.map(n => (
-          <g key={n.entity_id} style={{ cursor: 'pointer' }}
-            onMouseEnter={() => { setHovered(n); onNodeClick?.(n) }}
-            onMouseLeave={() => setHovered(null)}
-            onClick={() => setSelected(n)}>
-            <circle cx={n.x} cy={n.y} r={n.r * 1.7} fill="transparent" />
-            <circle cx={n.x} cy={n.y} r={n.r} fill={n.color} fillOpacity={0.85} stroke="#fff" strokeOpacity={0.6} strokeWidth={1.2} />
-            <text x={n.x} y={n.y + n.r + 11} textAnchor="middle" fontSize="9.5" fill="#D1D5DB">{n.name.length > 20 ? n.name.slice(0, 19) + '…' : n.name}</text>
-          </g>
-        ))}
-      </svg>
+      {graph}
 
       <div style={{ display: 'flex', gap: 24, marginTop: 14, flexWrap: 'wrap' as const }}>
         <div>

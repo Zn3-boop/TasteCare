@@ -74,7 +74,7 @@ export function WhyQlooTab(props: Props) {
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
-        {/* 左栏：With Qloo — live grounding */}
+        {/* Left column: With Qloo - live grounding */}
         <div onClick={() => setWhyMode('qloo')} style={{ flex: '1 1 340px', minWidth: 260, borderRadius: 14, border: whyMode === 'qloo' ? '2px solid #059669' : '1px solid #1F2937', background: '#0D2017', padding: 16, cursor: 'pointer' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: '#6EE7B7' }}>✅ With Qloo (Live Grounding)</h3>
@@ -120,7 +120,7 @@ export function WhyQlooTab(props: Props) {
           </p>
         </div>
 
-        {/* 右栏：Without Qloo — controlled baseline */}
+        {/* Right column: Without Qloo - controlled baseline */}
         <div onClick={() => setWhyMode('generic')} style={{ flex: '1 1 340px', minWidth: 260, borderRadius: 14, border: whyMode === 'generic' ? '2px solid #7F1D1D' : '1px solid #1F2937', background: '#1D0F0F', padding: 16, cursor: 'pointer' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: '#FCA5A5' }}>⚠️ Without Qloo (Controlled Baseline)</h3>

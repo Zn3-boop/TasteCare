@@ -28,7 +28,7 @@ def test_annotate_health_soft_food():
     entity = {"name": "Congee House", "tags": ["porridge", "Chinese"], "description": ""}
     result = _annotate_health(entity, ["soft_chewable"])
     assert result["passes"] is True
-    assert "软食友好" in result["labels"]
+    assert "Soft food friendly" in result["labels"]
 
 
 def test_annotate_health_flags_sodium():

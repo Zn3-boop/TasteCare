@@ -1,14 +1,14 @@
 
 """
-响应清洗模块 - 移除内部调试信息
-确保用户看到的输出不包含任何内部标记
+Response sanitizer — strips internal debug markers so users never see
+internal scaffolding in the output.
 """
 import json
 import re
 from typing import Any
 
 
-LEAKAGE_FALLBACK_MESSAGE = "我已收到你的请求，正在处理中。如需进一步分析，请告诉我更具体的需求。"
+LEAKAGE_FALLBACK_MESSAGE = "I received your request and am processing it. If you need further analysis, please share more specific details."
 
 
 class ResponseCleaner:
@@ -73,7 +73,7 @@ class ResponseCleaner:
 
     @classmethod
     def _remove_code_block_wrappers(cls, text: str) -> str:
-        """移除 Markdown 代码块包装"""
+        """Strip wrapping Markdown code fences"""
         text = text.strip()
         if text.startswith('```') and text.endswith('```'):
             lines = text.splitlines()
@@ -109,13 +109,13 @@ class ResponseCleaner:
     @classmethod
     def clean(cls, text: str) -> str:
         """
-        清洗文本中的内部标记
+        Clean internal markers out of text.
 
         Args:
-            text: 原始响应文本
+            text: raw response text
 
         Returns:
-            清洗后的用户可见文本
+            user-visible cleaned text
         """
         if not text:
             return text
@@ -143,13 +143,13 @@ class ResponseCleaner:
     @classmethod
     def clean_json_response(cls, data: Any) -> Any:
         """
-        清洗 JSON 响应中的所有字符串字段
+        Clean every string field in a JSON response.
 
         Args:
-            data: 原始响应字典
+            data: raw response dict
 
         Returns:
-            清洗后的响应字典
+            sanitized response dict
         """
         if isinstance(data, dict):
             return {k: cls.clean_json_response(v) for k, v in data.items()}
@@ -163,7 +163,7 @@ class ResponseCleaner:
 
 
 def clean_fastapi_response_body(body: bytes) -> bytes:
-    """清洗 FastAPI JSON 响应体，失败时回退原始 body。"""
+    """Sanitize a FastAPI JSON response body; fall back to the raw body on failure."""
     try:
         data = json.loads(body.decode('utf-8'))
     except Exception:

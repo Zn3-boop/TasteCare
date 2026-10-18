@@ -63,19 +63,19 @@ _DEMO_CANDIDATES: list[dict[str, Any]] = [
 # Demo prompts: same senior-dining scenarios across both variants.
 _DEMO_CASES: list[dict[str, Any]] = [
     {
-        "query": "妈妈高血压，牙口不好，想吃江南清淡家常菜，推荐几家附近餐厅",
+        "query": "My mother has high blood pressure and poor dentition, and wants light Jiangnan home-style dishes. Recommend a few nearby restaurants.",
         "cultural_likes": ["Jiangnan home cooking", "light flavor"],
         "location": "Shanghai",
         "constraints": {"low_sodium": True, "soft_chewable": True},
     },
     {
-        "query": "给喜欢老电影的奶奶找个能喝粥的清淡餐馆",
+        "query": "Help me find a light, congee-friendly restaurant for my grandma who loves classic films.",
         "cultural_likes": ["classic films", "soft congee"],
         "location": "Shanghai",
         "constraints": {"low_sodium": True, "soft_chewable": True, "low_sugar": True},
     },
     {
-        "query": "爷爷爱吃红烧肉，但血糖高，有没有合适的本帮菜馆",
+        "query": "My grandpa loves braised pork but has high blood sugar — is there a suitable local Shanghai restaurant?",
         "cultural_likes": ["Shanghai braised pork", "home-style"],
         "location": "Shanghai",
         "constraints": {"low_sugar": True},

@@ -9,7 +9,7 @@ export type QlooStatus = {
 }
 
 /**
- * Qloo 连接状态 — 挂载时探测一次 /api/v1/qloo/status。
+ * Qloo connection status — probes /api/v1/qloo/status once on mount.
  */
 export function useQlooStatus() {
   const [status, setStatus] = useState<QlooStatus | null>(null)

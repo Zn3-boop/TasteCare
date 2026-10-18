@@ -63,10 +63,7 @@ MEDICATION_DISCLAIMER = (
     "general dietary screening only — it does not constitute medical advice. "
     "If medications are involved (e.g., anticoagulants, blood pressure, or "
     "diabetes drugs), please confirm specific dish suitability with your "
-    "physician or pharmacist before deciding. "
-    "| 重要说明：本应用仅提供文化口味层面的餐饮推荐与一般性膳食筛查，"
-    "不构成医疗建议。若涉及用药（如抗凝、降压、降糖等），具体菜品是否适合，"
-    "请务必咨询您的医生或药师后再决定。"
+    "physician or pharmacist before deciding."
 )
 
 _SENIOR_HEALTHY_TAGS = [
@@ -135,20 +132,20 @@ def _annotate_health(
                     passes = False
                     warnings.append(note)
                 elif usda_row.get("texture") == "soft":
-                    labels.append("软食友好")
+                    labels.append("Soft food friendly")
                     labels.append(note)
                 elif hit_avoid and not hit_prefer:
                     passes = False
-                    warnings.append("可能过硬/难咀嚼（如油炸、硬壳、坚果）。")
+                    warnings.append("May be too hard/crunchy to chew comfortably.")
                 else:
-                    labels.append("软食（需进一步确认）")
+                    labels.append("Soft food (please double-check)")
             elif hit_prefer and not hit_avoid:
-                labels.append("软食友好")
+                labels.append("Soft food friendly")
             elif hit_avoid and not hit_prefer:
                 passes = False
-                warnings.append("可能过硬/难咀嚼（如油炸、硬壳、坚果）。")
+                warnings.append("May be too hard/crunchy to chew comfortably.")
             else:
-                labels.append("软食（需进一步确认）")
+                labels.append("Soft food (please double-check)")
         elif label == "low_sodium":
             if usda_row:
                 ok, note = sodium_check(usda_row)
@@ -161,21 +158,21 @@ def _annotate_health(
                 # ingredients (tofu) yet are cooked with soy sauce → still fail.
                 if hit_avoid:
                     passes = False
-                    warnings.append("可能高钠（腌制/烟熏/酱料等）。")
+                    warnings.append("May be high in sodium (cured/smoked/sauces).")
             elif hit_avoid:
                 passes = False
-                warnings.append("可能高钠（腌制/烟熏/酱料等）。")
+                warnings.append("May be high in sodium (cured/smoked/sauces).")
             else:
-                labels.append("低钠倾向")
+                labels.append("Low sodium tendency")
         elif label == "low_sugar":
             if hit_avoid:
                 passes = False
-                warnings.append("可能高糖（甜点/含糖饮品等）。")
+                warnings.append("May be high in sugar (desserts/sugary drinks).")
             else:
-                labels.append("低糖倾向")
+                labels.append("Low sugar tendency")
 
     if any(t in haystack for t in _SENIOR_HEALTHY_TAGS):
-        labels.append("清淡健康")
+        labels.append("Light & healthy")
 
     return {"passes": passes, "labels": labels, "warnings": warnings, "usda": usda_out}
 
@@ -452,23 +449,23 @@ def build_plain_language_explanation(
     invents recommendations from general knowledge.
     """
     parts: list[str] = []
-    anchor_text = "、".join(resolved_anchors[:3]) if resolved_anchors else ("所选菜系" if cuisine_tags else "您的偏好")
-    where = f"在「{location}」" if location else "在您所在位置附近"
-    parts.append(f"以下 {len(recommendations)} 家餐厅，是依据 Qloo 口味图谱、以「{anchor_text}」为口味锚点{where}为您筛选的。")
+    anchor_text = ", ".join(resolved_anchors[:3]) if resolved_anchors else ("the selected cuisine" if cuisine_tags else "your preferences")
+    where = f" in {location}" if location else " near you"
+    parts.append(f"These {len(recommendations)} restaurants were selected by Qloo's cultural taste graph, anchored on your tastes ({anchor_text}){where}.")
 
     passed = [r for r in recommendations if r.get("health", {}).get("passes")]
     if passed:
-        snippet = "；".join(
-            f"{r['name']}（{'、'.join(r['health']['labels']) if r['health']['labels'] else '清淡健康倾向'}）"
+        snippet = ", ".join(
+            f"{r['name']} ({', '.join(r['health']['labels']) if r['health']['labels'] else 'light & healthy tendency'})"
             for r in passed[:5]
         )
-        parts.append(f"优先推荐下面几家中「健康约束匹配度最高」的：{snippet}。")
+        parts.append(f"Priority goes to the places below with the best match to your health constraints: {snippet}.")
     flagged = [r for r in recommendations if not r.get("health", {}).get("passes")]
     if flagged:
-        names = "；".join(r["name"] for r in flagged[:3])
-        parts.append(f"其余餐厅因关键词筛查可能不完全符合所选健康条件，建议点餐时进一步确认（例如：{names}）。")
+        names = ", ".join(r["name"] for r in flagged[:3])
+        parts.append(f"Other restaurants may not fully match your selected health conditions after keyword screening, so please double-check when ordering (e.g. {names}).")
     if medications:
-        parts.append("由于您提到正在用药，请务必以医生/药师意见为准。")
+        parts.append("Because you mentioned taking medication, please defer to your physician's or pharmacist's guidance.")
     return " ".join(parts)
 
 

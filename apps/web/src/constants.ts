@@ -37,7 +37,6 @@ export const GENERIC_LLM_RESULTS = [
 ]
 
 export const DISCLAIMER_EN = 'This application provides culturally-grounded dining recommendations and general dietary screening only — it does not constitute medical advice. If medications are involved (e.g., anticoagulants, blood pressure, or diabetes drugs), please confirm specific dish suitability with your physician or pharmacist before deciding.'
-export const DISCLAIMER_ZH = '本应用仅提供文化口味层面的餐饮推荐与一般性膳食筛查，不构成医疗建议。若涉及用药（如抗凝、降压、降糖等），具体菜品是否适合，请务必咨询您的医生或药师后再决定。'
 
 // Example query seeds shown when the Taste Bridge has no data yet.
 export const EMPTY_STATE_EXAMPLES = [
@@ -69,12 +68,7 @@ export type DomainStatus = 'done' | 'loading' | 'idle'
 export const DOMAIN_LIST = ['music', 'film', 'dining', 'fashion', 'travel', 'podcast', 'book'] as const
 export type DomainKey = typeof DOMAIN_LIST[number]
 
-// G3: English mapping for the backend's health warnings + friendly constraint names.
-export const EN_WARNING: Record<string, string> = {
-  '可能过硬/难咀嚼（如油炸、硬壳、坚果）。': 'May be too hard/crunchy to chew comfortably.',
-  '可能高钠（腌制/烟熏/酱料等）。': 'May be high in sodium (cured/smoked/sauces).',
-  '可能高糖（甜点/含糖饮品等）。': 'May be high in sugar (desserts/sugary drinks).',
-}
+// G3: friendly names/icons for active health constraints on TasteCare cards.
 export const EN_CONSTRAINT_LABEL: Record<string, string> = {
   low_sodium: 'Low Sodium',
   low_sugar: 'Low Sugar',

@@ -62,12 +62,12 @@ def match_usda_food(text: str) -> dict[str, Any] | None:
 
 
 def nutrition_label(row: dict[str, Any]) -> str:
-    """Short human label like `USDA 1mg 钠 · 5.8g 蛋白 · 2.4g 纤维 /100g`."""
+    """Short human label like `USDA 1mg Na · 5.8g protein · 2.4g fiber /100g`."""
     p = row.get("per_100g", {})
     return (
-        f"USDA {p.get('sodium_mg', 0):.0f}mg 钠 · "
-        f"{p.get('protein_g', 0):.1f}g 蛋白 · "
-        f"{p.get('fiber_g', 0):.1f}g 纤维 /100g"
+        f"USDA {p.get('sodium_mg', 0):.0f}mg Na · "
+        f"{p.get('protein_g', 0):.1f}g protein · "
+        f"{p.get('fiber_g', 0):.1f}g fiber /100g"
     )
 
 
@@ -83,15 +83,15 @@ def sodium_check(row: dict[str, Any], threshold_mg: int | None = None) -> tuple[
     )
     sodium = row.get("per_100g", {}).get("sodium_mg", 0)
     if sodium <= threshold:
-        return True, f"低钠 ✓（USDA 每 100g 含钠 {sodium:.0f}mg，≤ {threshold}mg）"
-    return False, f"钠偏高 ⚠（USDA 每 100g 含钠 {sodium:.0f}mg，> {threshold}mg）"
+        return True, f"Low sodium ✓ (USDA {sodium:.0f}mg Na /100g, ≤ {threshold}mg)"
+    return False, f"Sodium high ⚠ (USDA {sodium:.0f}mg Na /100g, > {threshold}mg)"
 
 
 def texture_check(row: dict[str, Any]) -> tuple[bool, str]:
     """(passes, note) for soft-chewable constraint using our curated whitelist."""
     texture = row.get("texture", "medium")
     if texture == "soft":
-        return True, "软食友好 ✓（质地白名单：soft）"
+        return True, "Soft texture ✓ (whitelist: soft)"
     if texture == "hard":
-        return False, "偏硬/难咀嚼 ⚠（质地白名单：hard）"
-    return True, "质地适中（质地白名单：medium）"
+        return False, "Hard / hard to chew ⚠ (whitelist: hard)"
+    return True, "Medium texture (whitelist: medium)"

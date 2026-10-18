@@ -14,16 +14,16 @@ router = APIRouter(prefix="/tastecare", tags=["tastecare"])
 class SeniorProfile(BaseModel):
     cultural_likes: list[str] = Field(
         default_factory=list,
-        description="文化偏好：菜系 / 艺术家 / 电影等，作为 Qloo 口味锚点",
+        description="Cultural preferences: cuisines / artists / films etc., used as Qloo taste anchors",
     )
     cuisine_tags: list[str] = Field(
         default_factory=list,
-        description="可选：Qloo 菜系 tag ID 列表（如 urn:tag:genre:... ）",
+        description="Optional: Qloo cuisine tag IDs (e.g. urn:tag:genre:...)",
     )
-    location: str | None = Field(default=None, description="地区/城市，如 'New York'")
+    location: str | None = Field(default=None, description="Region / city, e.g. 'New York'")
     constraints: dict[str, Any] = Field(
         default_factory=dict,
-        description="健康约束：{ low_sugar, low_sodium, soft_chewable, medications }",
+        description="Health constraints: { low_sugar, low_sodium, soft_chewable, medications }",
     )
     take: int = Field(default=12, ge=1, le=50)
 

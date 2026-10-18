@@ -103,11 +103,11 @@ class TestToVariantResult:
         recs = [
             {
                 "name": "Congee House",
-                "health": {"passes": True, "labels": ["低钠倾向"], "warnings": []},
+                "health": {"passes": True, "labels": ["Low sodium tendency"], "warnings": []},
             },
             {
                 "name": "BBQ",
-                "health": {"passes": False, "labels": [], "warnings": ["可能高钠"]},
+                "health": {"passes": False, "labels": [], "warnings": ["May be high in sodium"]},
             },
         ]
         out = _to_variant_result(recs, "live")
@@ -119,7 +119,7 @@ class TestToVariantResult:
         first = out["rationale"][0]
         assert first["name"] == "Congee House"
         assert first["passes"] is True
-        assert first["safety_validation"] == "低钠倾向"
+        assert first["safety_validation"] == "Low sodium tendency"
         assert "cultural_match" in first
 
     def test_empty_recs_no_top_pick(self):
@@ -199,7 +199,7 @@ class TestRunComparison:
         with patch("app.services.eval.ablation.recommend_meals", new_callable=AsyncMock) as mock_rm:
             mock_rm.return_value = {
                 "recommendations": [
-                    {"name": "Da Mario", "health": {"passes": True, "labels": ["低钠倾向"], "warnings": []}},
+                    {"name": "Da Mario", "health": {"passes": True, "labels": ["Low sodium tendency"], "warnings": []}},
                 ],
                 "error": None,
                 "source": "qloo",

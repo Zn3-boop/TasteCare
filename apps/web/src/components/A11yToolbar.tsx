@@ -18,10 +18,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
  */
 
 const THEMES = [
-  { key: 'default', label: '原色', hint: 'Follow the demo styling' },
-  { key: 'high-contrast', label: '黑白', hint: 'High contrast (B/W)' },
-  { key: 'sepia', label: '护眼', hint: 'Warm paper, less glare' },
-  { key: 'blue', label: '蓝底', hint: 'Deep blue (macular-friendly)' },
+  { key: 'default', label: 'Original', hint: 'Follow the demo styling' },
+  { key: 'high-contrast', label: 'B/W', hint: 'High contrast (B/W)' },
+  { key: 'sepia', label: 'Sepia', hint: 'Warm paper, less glare' },
+  { key: 'blue', label: 'Blue', hint: 'Deep blue (macular-friendly)' },
 ] as const
 type ThemeKey = (typeof THEMES)[number]['key']
 
@@ -181,21 +181,21 @@ return (
         <div style={{ width: 'min(680px, calc(100vw - 24px))', background: '#111827F2', border: '1px solid #374151', borderRadius: 16, padding: 14, boxShadow: '0 12px 32px rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)' }}>
           {/* 1) Text size */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB' }}>文字大小</label>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB' }}>Text size</label>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button style={{ ...BTN }} onClick={() => setScale(-0.1)} aria-label="Decrease text size">A−</button>
               <span style={{ fontSize: 13, color: '#D1D5DB', minWidth: 44, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
               <button style={{ ...BTN }} onClick={() => setScale(0.1)} aria-label="Increase text size">A+</button>
               <label style={{ fontSize: 12, color: '#9CA3AF', display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginLeft: 8 }}>
                 <input type="checkbox" checked={contentOnly} onChange={e => setContentOnly(e.target.checked)} style={{ width: 16, height: 16 }} />
-                仅正文
+                Body text only
               </label>
             </span>
           </div>
 
           {/* 2) Color theme */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB', marginBottom: 6 }}>护眼配色</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB', marginBottom: 6 }}>Color theme (eye-friendly)</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {THEMES.map(t => {
                 const p = themePreview[t.key]
@@ -230,9 +230,9 @@ return (
           {/* 3) Read aloud */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB' }}>朗读</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB' }}>Read aloud</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ fontSize: 11, color: '#9CA3AF' }}>语速</label>
+                <label style={{ fontSize: 11, color: '#9CA3AF' }}>Speed</label>
                 <input
                   type="range" min={0.6} max={1.2} step={0.05} value={rate}
                   onChange={e => setRate(Number(e.target.value))}
@@ -244,20 +244,20 @@ return (
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button style={{ ...BTN, background: '#0B63CE', borderColor: '#0B63CE' }} onClick={() => speak(getSpeakingSource())}>
-                {playing ? '🔄 重新朗读' : '🔊 朗读全文'}
+                {playing ? '🔄 Re-read page' : '🔊 Read page aloud'}
               </button>
               {playing && (
                 <button style={{ ...BTN }} onClick={togglePause}>
-                  {paused ? '▶ 继续' : '⏸ 暂停'}
+                  {paused ? '▶ Resume' : '⏸ Pause'}
                 </button>
               )}
               <button style={{ ...BTN }} onClick={() => { const s = window.getSelection()?.toString().trim(); if (s) speak(s) }}>
-                📖 朗读选中
+                📖 Read selected text
               </button>
-              <button style={{ ...BTN }} onClick={stopSpeaking}>⏹ 停止</button>
+              <button style={{ ...BTN }} onClick={stopSpeaking}>⏹ Stop</button>
             </div>
             <div style={{ fontSize: 10.5, color: '#6B7280', marginTop: 6 }}>
-              浏览器本地语音合成 (Web Speech API) — 无需联网、无需任何服务端 key，朗读并高亮当前句子。
+              Browser-native text-to-speech (Web Speech API) — no network or server key needed; the current sentence is highlighted as it is read.
             </div>
           </div>
         </div>
@@ -266,7 +266,7 @@ return (
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Accessibility tools"
-        title="无障碍工具"
+        title="Accessibility tools"
         style={{
           width: 52, height: 52, borderRadius: '50%',
           background: 'linear-gradient(135deg, #FF6B35, #F5A623)',
@@ -278,7 +278,7 @@ return (
       </button>
       {!open && (
         <span style={{ fontSize: 10, color: '#9CA3AF', background: '#111827CC', padding: '3px 10px', borderRadius: 20, border: '1px solid #374151' }}>
-          无障碍工具
+          Accessibility tools
         </span>
       )}
     </div>

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { QlooEntity } from '../../api'
 import { DOMAINS, DOMAIN_COLORS, PREVIEW_BRIDGE, BRIDGE_DOMAIN_ORDER, EMPTY_STATE_EXAMPLES, MARIA_JOURNEY, type DomainStatus } from '../../constants'
-import { getEntityDetails, type EntityDetails } from '../../api'
 import { EntityCard } from '../ui'
 import { sx } from '../sx'
 import { TasteBridge, type BridgeZone } from '../TasteBridge'
@@ -20,9 +19,6 @@ export function DiscoverTab(props: Props) {
   const { seeds, setSeeds, crossRes, doCross, loading, qlooEnabled } = props
 
   const [domainStatuses, setDomainStatuses] = useState<Record<string, DomainStatus>>({})
-  const [selectedNode, setSelectedNode] = useState<{ entity_id: string; name: string; domain: string; why?: string } | null>(null)
-  const [entityDetails, setEntityDetails] = useState<EntityDetails | null>(null)
-  const [detailsLoading, setDetailsLoading] = useState(false)
 
   // Live data only when Qloo is connected AND cross-domain results are present.
   // Otherwise fall back to the clearly-labelled demo preview pool.
@@ -31,17 +27,31 @@ export function DiscoverTab(props: Props) {
   // ---- Maria's Journey: semi-dynamic cross-domain storyline -------------------
   // Fixed persona + fixed path skeleton (🎵→🍽️→🎬→✈️→👗) + fixed seeds; the CONTENT
   // of each step is dynamic (live crossRes with a key, PREVIEW_BRIDGE without).
-  // Two-phase trigger: set the Sinatra seed, then fire doCross() after the seed
-  // lands in state (doCross closes over the current seeds).
-  const [playJourney, setPlayJourney] = useState(false)
-  const doCrossRef = useRef(doCross)
-  doCrossRef.current = doCross
-  useEffect(() => {
-    if (playJourney && seeds.some(s => s.name === 'Frank Sinatra')) {
-      doCrossRef.current()
-      setPlayJourney(false)
+  // Trigger is event-driven: ensure the Sinatra anchor exists, then fire doCross()
+  // directly (useTastes resolves the 'seed-' placeholder to a real Qloo entity).
+  const runJourney = () => {
+    if (!seeds.some(s => s.name === 'Frank Sinatra')) {
+      setSeeds(prev => [...prev, { id: 'seed-frank-sinatra', name: 'Frank Sinatra', type: 'artist', domain: 'music' }])
     }
-  }, [playJourney, seeds])
+    doCross()
+  }
+
+  // Auto-run Maria's journey when the bridge tab FIRST opens with Qloo connected —
+  // no click needed (feedback #10: cross-domain front and center) and surfaces a
+  // LIVE constellation via the default Frank Sinatra anchor. Ref-guarded so a
+  // mid-session toggle of qlooEnabled never triggers a duplicate fetch.
+  const journeyAutoRanRef = useRef(false)
+  const wasEnabledRef = useRef(false)
+  useEffect(() => {
+    if (qlooEnabled && !wasEnabledRef.current && !journeyAutoRanRef.current) {
+      journeyAutoRanRef.current = true
+      if (seeds.some(s => s.name === 'Frank Sinatra')) {
+        doCross()
+      }
+    }
+    wasEnabledRef.current = qlooEnabled
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qlooEnabled])
 
   const journeyHasLive = hasLive && Object.keys(crossRes).length > 0
   const journeySteps = MARIA_JOURNEY.map(step => {
@@ -83,17 +93,6 @@ export function DiscoverTab(props: Props) {
   const centerLabel = seeds.length ? seeds.map(s => s.name).join(' · ') : 'Frank Sinatra'
   const dataSource = hasLive ? 'live' : 'preview'
 
-  const handleNodeClick = async (node: { entity_id: string; name: string; domain: string; why?: string }) => {
-    setSelectedNode(node)
-    if (node.entity_id.startsWith('preview-')) {
-      setEntityDetails(null)
-      return
-    }
-    setDetailsLoading(true)
-    try { const d = await getEntityDetails(node.entity_id); setEntityDetails(d) } catch { /* ignore */ }
-    setDetailsLoading(false)
-  }
-
   return (
     <section>
       <div style={{ ...sx.card, marginBottom: 20, border: '1px solid #05966944', background: 'linear-gradient(135deg, #05966910, #111827)' }}>
@@ -113,10 +112,7 @@ export function DiscoverTab(props: Props) {
             </p>
           </div>
           <button
-            onClick={() => {
-              setSeeds(prev => prev.some(s => s.name === 'Frank Sinatra') ? prev : [...prev, { id: 'seed-frank-sinatra', name: 'Frank Sinatra', type: 'artist', domain: 'music' }])
-              setPlayJourney(true)
-            }}
+            onClick={() => runJourney()}
             disabled={loading}
             style={{ ...sx.btnPrimary, background: 'linear-gradient(135deg, #C77DFF, #8B5CF6)', boxShadow: '0 4px 14px #C77DFF44', opacity: loading ? 0.6 : 1, whiteSpace: 'nowrap' as const }}
           >
@@ -144,7 +140,7 @@ export function DiscoverTab(props: Props) {
         </div>
       </div>
 
-      <TasteBridge centerLabel={centerLabel} zones={zones} dataSource={dataSource} loading={loading} domainStatuses={domainStatuses} onNodeClick={handleNodeClick} />
+      <TasteBridge centerLabel={centerLabel} zones={zones} dataSource={dataSource} loading={loading} domainStatuses={domainStatuses} />
 
       <div style={{ marginTop: 20, ...sx.card }}>
         {seeds.length > 0 && (
@@ -177,7 +173,7 @@ export function DiscoverTab(props: Props) {
             </div>
           </div>
         )}
-        <button onClick={() => { doCross(); setDomainStatuses(prev => { const next: Record<string, DomainStatus> = {}; Object.keys(crossRes).forEach(k => { next[k] = 'loading' }); return next }) }} disabled={loading || !seeds.length} style={{ ...sx.btnPrimary, background: 'linear-gradient(135deg, #059669, #047857)', boxShadow: '0 4px 14px #05966944', marginBottom: 16, opacity: loading || !seeds.length ? 0.5 : 1 }}>
+        <button onClick={() => { doCross(); setDomainStatuses(() => { const next: Record<string, DomainStatus> = {}; Object.keys(crossRes).forEach(k => { next[k] = 'loading' }); return next }) }} disabled={loading || !seeds.length} style={{ ...sx.btnPrimary, background: 'linear-gradient(135deg, #059669, #047857)', boxShadow: '0 4px 14px #05966944', marginBottom: 16, opacity: loading || !seeds.length ? 0.5 : 1 }}>
           {loading ? '…' : '🔗 Fetch Live Cross-Domain Bridges'}
         </button>
 

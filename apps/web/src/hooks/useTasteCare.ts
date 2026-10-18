@@ -7,8 +7,8 @@ import { useToast } from './useToast'
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
 /**
- * TasteCare（Senior Dining）tab 的全部状态与动作。
- * loading/error 由 AppShell 统一管理，通过 Busy 回调透传。
+ * TasteCare (Senior Dining) tab state and actions.
+ * loading/error are owned by AppShell and forwarded through the Busy callbacks.
  */
 export function useTasteCare({ setLoading, setError }: Busy) {
   const toast = useToast()
@@ -31,12 +31,17 @@ export function useTasteCare({ setLoading, setError }: Busy) {
     [tcConstraints],
   )
 
-  const doTasteCare = useCallback(async () => {
-    const likes = tcLikes.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
+  const doTasteCare = useCallback(async (override?: { likes?: string; location?: string }) => {
+    // Accept an explicit override so one-click demos ("Try Maria's Story") can
+    // skip the async setState round-trip: the button resets the form AND fires
+    // the search with the same values in a single synchronous pass.
+    const likesSrc = override?.likes ?? tcLikes
+    const likes = likesSrc.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
     if (!likes.length) { setError('Enter at least one cultural interest (artist, cuisine, film…)'); return }
+    const loc = override?.location ?? tcLocation
     setLoading(true); setError(''); setTcSearched(true)
     try {
-      const res = await tasteCareRecommend({ cultural_likes: likes, location: tcLocation, constraints: tcConstraints, take: 12 })
+      const res = await tasteCareRecommend({ cultural_likes: likes, location: loc, constraints: tcConstraints, take: 12 })
       setTcResult(res)
       addTcHistory(likes.join(', '))
       toast('TasteCare suggestions ready — grounded in Qloo taste graph', 'success')
@@ -54,5 +59,7 @@ export function useTasteCare({ setLoading, setError }: Busy) {
     tcHistory, clearTcHistory,
     activeConstraintCount, activeConstraintLabels,
     doTasteCare,
+    defaultLikes: SENIOR_PERSONA.likes,
+    defaultLocation: SENIOR_PERSONA.location,
   }
 }

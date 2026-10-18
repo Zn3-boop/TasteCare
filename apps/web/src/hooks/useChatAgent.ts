@@ -16,7 +16,7 @@ export type ChatMsg = {
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
 /**
- * Agent tab 的全部状态与动作（对话 + 点赞/点踩反馈）。
+ * Agent tab's full state and actions (chat + like/dislike feedback).
  */
 export function useChatAgent({ setLoading, setError }: Busy) {
   const toast = useToast()

@@ -47,6 +47,14 @@ export function AblationTab() {
         <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
           💡 This comparison needs <strong style={{ color: '#6EE7B7' }}>only QLOO_API_KEY</strong> — no LLM key. Variant A is pure rules; Variant B runs the live TasteCare pipeline.
         </p>
+        <p style={{ fontSize: 11, color: '#6EE7B7', marginTop: 6, fontWeight: 600 }}>
+          ⚡ Same prompt → one request → Variant A &amp; Variant B rendered side-by-side (no manual tab switching).
+        </p>
+        {data && data.data_source === 'live' && (
+          <p style={{ fontSize: 11, color: '#34D399', marginTop: 6, fontWeight: 700 }}>
+            ● Live Qloo data — real taste-graph grounding from QLOO_API_KEY.
+          </p>
+        )}
         {data && data.data_source === 'preview' && (
           <p style={{ fontSize: 11, color: '#FCD34D', marginTop: 6, fontStyle: 'italic' }}>
             Demo preview data (QLOO_API_KEY not set) — clearly labelled, not live Qloo output.

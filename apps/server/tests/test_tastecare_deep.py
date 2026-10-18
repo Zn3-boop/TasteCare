@@ -427,7 +427,7 @@ class TestAnnotateHealthDeep:
     def test_senior_healthy_tag_bonus(self):
         entity = {"name": "Mediterranean Bowl", "tags": ["mediterranean"]}
         result = _annotate_health(entity, [])
-        assert "清淡健康" in result["labels"]
+        assert "Light & healthy" in result["labels"]
 
 
 class TestBuildPlainLanguageExplanation:
@@ -438,7 +438,7 @@ class TestBuildPlainLanguageExplanation:
             location="Shanghai",
             active_labels=["low_sodium"],
             recommendations=[
-                {"name": "Good Place", "health": {"passes": True, "labels": ["低钠倾向"], "warnings": []}},
+                {"name": "Good Place", "health": {"passes": True, "labels": ["Low sodium tendency"], "warnings": []}},
             ],
             medications=[],
         )
@@ -469,7 +469,7 @@ class TestBuildPlainLanguageExplanation:
             recommendations=[],
             medications=["warfarin"],
         )
-        assert "用药" in result
+        assert "physician" in result.lower() or "medication" in result.lower()
 
     def test_no_anchors_uses_cuisine_tags(self):
         result = build_plain_language_explanation(
@@ -480,7 +480,7 @@ class TestBuildPlainLanguageExplanation:
             recommendations=[],
             medications=[],
         )
-        assert "菜系" in result
+        assert any(k in result for k in ("cuisine", "preferences", "tastes"))
 
 
 class TestSortCandidates:
@@ -1083,14 +1083,14 @@ class TestBilingualDisclaimer:
     def test_disclaimer_has_english(self):
         assert "medical advice" in MEDICATION_DISCLAIMER
 
-    def test_disclaimer_has_chinese(self):
-        assert "医疗建议" in MEDICATION_DISCLAIMER
+    def test_disclaimer_is_english_only(self):
+        assert "医疗建议" not in MEDICATION_DISCLAIMER
 
     def test_disclaimer_mentions_medications(self):
-        assert "medications" in MEDICATION_DISCLAIMER.lower() or "用药" in MEDICATION_DISCLAIMER
+        assert "medications" in MEDICATION_DISCLAIMER.lower()
 
     def test_disclaimer_mentions_physician(self):
-        assert "physician" in MEDICATION_DISCLAIMER or "医生" in MEDICATION_DISCLAIMER
+        assert "physician" in MEDICATION_DISCLAIMER
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-// 后端已对业务 API 统一加 /api/v1 前缀（/ 与 /health 是探活路径，不用版本）。
+// The backend already prefixes business APIs with /api/v1 (/ and /health are liveness paths, no version).
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '') + '/api/v1'
 
 export interface QlooEntity {

@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { TasteCareResult } from '../../api'
+import type { QlooEntity, TasteCareResult } from '../../api'
 import {
-  CONSTRAINT_META, DISCLAIMER_EN, DISCLAIMER_ZH,
+  CONSTRAINT_META, DISCLAIMER_EN,
   EN_CONSTRAINT_ICON, EN_CONSTRAINT_LABEL,
   SENIOR_SCENARIO_PROMPTS,
 } from '../../constants'
@@ -9,6 +9,7 @@ import { SkeletonRow, TasteCareCard } from '../ui'
 import { sx } from '../sx'
 import { useSpeechInput } from '../../hooks/useSpeechInput'
 import { QlooGroundingPanel } from '../QlooGroundingPanel'
+import { TasteBridgeHero } from '../TasteBridgeHero'
 
 type Props = {
   tcLikes: string
@@ -20,20 +21,26 @@ type Props = {
   tcResult: TasteCareResult | null
   tcSearched: boolean
   doTasteCare: () => void
+  onRunMariaStory: () => void
   activeConstraintCount: number
   activeConstraintLabels: string
   loading: boolean
   searchHistory: string[]
   onPickHistory: (v: string) => void
   onClearHistory: () => void
+  bridgeCrossRes: Record<string, QlooEntity[]>
+  qlooEnabled: boolean
+  bridgeAnchor: string
+  onOpenDiscover: () => void
 }
 
 export function SeniorDiningTab(props: Props) {
   const {
     tcLikes, setTcLikes, tcLocation, setTcLocation,
     tcConstraints, setTcConstraints, tcResult, tcSearched,
-    doTasteCare, activeConstraintCount, activeConstraintLabels, loading,
+    doTasteCare, onRunMariaStory, activeConstraintCount, activeConstraintLabels, loading,
     searchHistory, onPickHistory, onClearHistory,
+    bridgeCrossRes, qlooEnabled, bridgeAnchor, onOpenDiscover,
   } = props
 
   const {
@@ -42,6 +49,27 @@ export function SeniorDiningTab(props: Props) {
 
   return (
     <section>
+      <TasteBridgeHero
+        anchor={bridgeAnchor}
+        crossRes={bridgeCrossRes}
+        qlooEnabled={qlooEnabled}
+        onExplore={onOpenDiscover}
+      />
+      <button
+        onClick={onRunMariaStory}
+        disabled={loading}
+        title="Runs the full demo: fills Maria's profile, searches the live Qloo taste graph, screens for health constraints, and shows the grounding evidence."
+        style={{
+          width: '100%', padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
+          fontSize: 14, fontWeight: 800, letterSpacing: 0.3,
+          color: '#fff', border: '1px solid #6EE7B766',
+          background: 'linear-gradient(135deg, #FF6B35, #8B5CF6)',
+          boxShadow: '0 4px 20px #FF6B3544',
+          marginBottom: 16, opacity: loading ? 0.6 : 1,
+        }}
+      >
+        🍽️ Try Maria's Story — one click, live Qloo demo
+      </button>
       <div style={{ marginBottom: 16 }}>
         <label style={sx.label}>Quick scenarios (click to try)</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
@@ -134,7 +162,7 @@ export function SeniorDiningTab(props: Props) {
 
       {!loading && tcResult && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* 默认主链路：Qloo 溯源证据（占位实体，后端 taste_entities 透出后替换为真实值） */}
+          {/* Default main flow: Qloo grounding evidence (placeholder entities, replaced with real backend taste_entities passthrough) */}
           <div style={{ marginBottom: 4 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: tcResult.data_source === 'live' ? '#065F46' : '#78350F', color: tcResult.data_source === 'live' ? '#6EE7B7' : '#FCD34D', whiteSpace: 'nowrap' }}>
@@ -184,7 +212,6 @@ export function SeniorDiningTab(props: Props) {
           {(tcResult.disclaimer || tcResult.recommendations.length > 0) && (
             <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: '#1F293722', border: '1px solid #37415144' }}>
               <p style={{ fontSize: 11, color: '#9CA3AF', lineHeight: 1.5 }}>{DISCLAIMER_EN}</p>
-              <p style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.5, marginTop: 4 }}>{DISCLAIMER_ZH}</p>
             </div>
           )}
         </div>

@@ -311,17 +311,18 @@ async def chat_with_agent(payload: ChatRequest):
         )
         return ChatResponse(reply=reply, taste_data_source="preview")
 
-    # ---- 用户口味画像（历史 👍 反馈）—— with/without Qloo 两条分支共享 ----
-    # 读取一次、两处使用，保证 Ablation 对照组两边拿到完全相同的 profile。
+    # ---- User taste profile (historical 👍 feedback) — shared by with/without Qloo branches ----
+    # Read once, used twice, so both ablation arms get the exact same profile.
     try:
         profile_likes = [n for n in store.get_liked_taste_names() if n][:3]
     except Exception:
         profile_likes = []
 
-    # ---- Ablation 对照组：disable_qloo=true ----
-    # 单一变量原则：与正常分支复用同一个 CULTURAL_RECOMMENDATION_SYSTEM_PROMPT、
-    # 同一份用户口味画像、相同的 temperature/task_type。唯一差异是**不解析、不注入
-    # Qloo 实体上下文块**——被隔离的变量只有 Qloo 文化图谱本身。
+    # ---- Ablation control arm: disable_qloo=true ----
+    # Single-variable principle: reuse the same CULTURAL_RECOMMENDATION_SYSTEM_PROMPT,
+    # the same user taste profile, and the same temperature/task_type as the normal
+    # branch. The only difference is that the Qloo entity-context block is NOT parsed
+    # or injected — the isolated variable is the Qloo cultural taste graph itself.
     if payload.disable_qloo:
         ab_user = _inject_profile_likes(user_prompt, profile_likes)
         try:
@@ -396,7 +397,7 @@ async def chat_with_agent(payload: ChatRequest):
         resolved_names = [str(n) for n in resolved_names if n]
         if node_result.get("qloo_enabled") and resolved_names:
             # LangGraph execution evidence: /chat/agent ran the agent framework's
-            # B档 qloo agent StateGraph (input_node -> intent_node -> build_qloo_query
+            # B-arm qloo agent StateGraph (input_node -> intent_node -> build_qloo_query
             # -> qloo_call_node -> format_output) whose qloo_call_node executes the
             # same qloo_cultural_recommend_node used by the full pipeline.
             logger.info(

@@ -3,7 +3,7 @@
 
 import type { QlooEntity, TasteCareRecommendation } from '../api'
 import {
-  DOMAIN_COLORS, CONSTRAINT_META, EN_WARNING, EN_CONSTRAINT_LABEL, EN_CONSTRAINT_ICON,
+  DOMAIN_COLORS, CONSTRAINT_META, EN_CONSTRAINT_LABEL, EN_CONSTRAINT_ICON,
 } from '../constants'
 import { sx } from './sx'
 
@@ -55,7 +55,7 @@ export function EntityCard({ entity, rank, onClick }: { entity: QlooEntity; rank
 
 export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore = false }: { rec: TasteCareRecommendation; rank?: number; activeConstraints?: string[]; showFitScore?: boolean }) {
   const health = rec.health
-  const warnings = (health?.warnings || []).map((w) => EN_WARNING[w] || w)
+  const warnings = health?.warnings || []
   const wLower = warnings.join(' ').toLowerCase()
   const constraintFail = (c: string) =>
     (c === 'soft_chewable' && (wLower.includes('hard') || wLower.includes('crunchy'))) ||

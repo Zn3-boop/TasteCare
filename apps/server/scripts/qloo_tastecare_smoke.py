@@ -48,7 +48,7 @@ async def main() -> None:
         "low_sodium": True,
         "low_sugar": True,
         "soft_chewable": True,
-        "medications": ["血压药"],
+        "medications": ["blood pressure medication"],
     }
 
     print("\n[TasteCare] recommending senior-friendly dining places...")

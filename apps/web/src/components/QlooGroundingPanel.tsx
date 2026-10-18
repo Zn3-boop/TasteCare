@@ -24,17 +24,28 @@ export function QlooGroundingPanel({ tasteEntities, tasteDataSource, qlooContext
         Qloo cultural taste entities used in this reply
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5 }}>
-        {tasteEntities.map((ent) => (
-          <span key={ent} style={{ background: '#111827', border: '1px solid #374151', color: '#E5E7EB', padding: '3px 9px', borderRadius: 999, fontSize: 11 }}>
-            {ent}
-          </span>
-        ))}
+      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+        {/* Qloo grounding evidence, expanded by default: put "why this comes from Qloo" in front of the judge */}
+        {tasteEntities.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5 }}>
+            {tasteEntities.map((ent) => (
+              <span key={ent} style={{ background: '#111827', border: `1px solid ${accent}55`, color: '#E5E7EB', padding: '3px 9px', borderRadius: 999, fontSize: 11 }}>
+                {ent}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>
+            No Qloo entities resolved for this reply — showing the raw payload below.
+          </div>
+        )}
       </div>
 
-      <details style={{ marginTop: 8 }}>
-        <summary style={{ fontSize: 11, color: '#9CA3AF', cursor: 'pointer' }}>Raw Qloo context payload</summary>
-        <pre style={{ fontSize: 10, color: '#D1D5DB', background: '#0b1020', border: '1px solid #1F2937', borderRadius: 8, padding: 8, overflow: 'auto', maxHeight: 160, whiteSpace: 'pre-wrap' as const, margin: 0 }}>
+      <details open style={{ marginTop: 8 }}>
+        <summary style={{ fontSize: 11, color: '#9CA3AF', cursor: 'pointer', fontWeight: 700 }}>
+          {live ? '◈ Qloo grounding evidence (expanded)' : 'Raw Qloo context payload'}
+        </summary>
+        <pre style={{ fontSize: 10, color: '#D1D5DB', background: '#0b1020', border: '1px solid #1F2937', borderRadius: 8, padding: 8, overflow: 'auto', maxHeight: 160, whiteSpace: 'pre-wrap' as const, margin: '8px 0 0' }}>
           {typeof qlooContext === 'string' ? qlooContext : JSON.stringify(qlooContext, null, 2)}
         </pre>
       </details>
