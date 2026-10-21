@@ -22,23 +22,22 @@ jobs:
           python -m pytest -q --tb=short -m "not real_api"
 
   # Optional live job: only runs when the repo has a QLOO_API_KEY secret.
-  # Judges/self-hosted environments that export QLOO_API_KEY can also run the
-  # full suite directly (`python -m pytest` runs real_api whenever the key is
-  # present) — this job is the CI equivalent of that contract.
+  # Note: `secrets` is NOT available in job-level `if:` expressions (GitHub
+  # limitation), so the guard lives on the step that installs + runs the live
+  # suite. When no key is configured the job only checks out the repo and the
+  # live step is skipped. Judges/self-hosted environments that export
+  # QLOO_API_KEY can also run the full suite directly (`python -m pytest` runs
+  # real_api whenever the key is present) — this job is the CI equivalent.
   backend-live:
     runs-on: ubuntu-latest
-    if: secrets.QLOO_API_KEY != ''
-    env:
-      QLOO_API_KEY: ${{ secrets.QLOO_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install dependencies
-        run: pip install -r apps/server/requirements.txt -r apps/server/requirements-dev.txt
       - name: Run live Qloo API tests (real_api marker)
+        if: ${{ secrets.QLOO_API_KEY != '' }}
+        env:
+          QLOO_API_KEY: ${{ secrets.QLOO_API_KEY }}
         run: |
+          pip install -r apps/server/requirements.txt -r apps/server/requirements-dev.txt
           cd apps/server
           python -m pytest -q --tb=short -m "real_api"
 
