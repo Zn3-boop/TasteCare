@@ -21,22 +21,26 @@ jobs:
           cd apps/server
           python -m pytest -q --tb=short -m "not real_api"
 
-  # Optional live job: only runs when the repo has a QLOO_API_KEY secret.
-  # Note: `secrets` is NOT available in job-level `if:` expressions (GitHub
-  # limitation), so the guard lives on the step that installs + runs the live
-  # suite. When no key is configured the job only checks out the repo and the
-  # live step is skipped. Judges/self-hosted environments that export
-  # QLOO_API_KEY can also run the full suite directly (`python -m pytest` runs
-  # real_api whenever the key is present) — this job is the CI equivalent.
+  # Optional live job: the live Qloo tests run exactly when QLOO_API_KEY is
+  # present. GitHub's workflow parser does NOT allow the `secrets` context in
+  # ANY `if:` expression (neither job- nor step-level), so we never reference
+  # it there: the secret is injected straight into the job-level env, and a
+  # plain shell check in the run script decides whether to run the real_api
+  # suite. Same contract as `python -m pytest` without markers (real_api runs
+  # whenever the key is present), so judges/self-hosted runners exporting
+  # QLOO_API_KEY get identical behavior.
   backend-live:
     runs-on: ubuntu-latest
+    env:
+      QLOO_API_KEY: ${{ secrets.QLOO_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Run live Qloo API tests (real_api marker)
-        if: ${{ secrets.QLOO_API_KEY != '' }}
-        env:
-          QLOO_API_KEY: ${{ secrets.QLOO_API_KEY }}
         run: |
+          if [ -z "$QLOO_API_KEY" ]; then
+            echo "::notice::QLOO_API_KEY not configured; skipping live Qloo API tests"
+            exit 0
+          fi
           pip install -r apps/server/requirements.txt -r apps/server/requirements-dev.txt
           cd apps/server
           python -m pytest -q --tb=short -m "real_api"
