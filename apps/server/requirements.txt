@@ -16,6 +16,10 @@ openai>=1.58.0
 # 本地快脑(Ollama 小模型 logprob 决策)
 ollama>=0.4
 
+# Agent 图引擎（Qloo 推荐 agent 的 StateGraph 运行时；缺失会让 CI 收集阶段
+# import 失败 → pytest exit code 2）
+langgraph>=1.0,<2.0
+
 # 工具
 python-multipart>=0.0.9,<1.0
 python-docx>=1.1,<2.0
