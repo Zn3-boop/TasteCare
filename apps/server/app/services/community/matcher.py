@@ -348,9 +348,49 @@ async def semantic_match_peers(
     }
 
 
-# ---- Mutual opt-in connection store (in-memory, demo) ----------------------
+# ---- Mutual opt-in connection store (persistent JSON in server/data/) -------
+# The demo's lightweight DB: connections survive server restarts because they are
+# flushed to a JSON file on every write and re-loaded at import. No SQL, no new
+# dependencies — small JSON is the right scale for a demo store.
 
+from pathlib import Path
+from threading import RLock
+
+_CONNECTIONS_FILE = Path(__file__).resolve().parents[3] / "data" / "community_connections.json"
+# parents[0] = app/services/community, [1] = app/services, [2] = app, [3] = apps/server
+_CONNECTIONS_LOCK = RLock()
 _connections: dict[str, dict[str, Any]] = {}
+
+
+def _load_connections() -> None:
+    """Read the JSON store into memory once at import time."""
+    global _connections
+    try:
+        if _CONNECTIONS_FILE.exists():
+            import json
+
+            data = json.loads(_CONNECTIONS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                _connections = data
+    except Exception:  # noqa: BLE001 - corrupt file must never break the demo
+        logger.warning("community connections file unreadable — starting empty", exc_info=True)
+        _connections = {}
+
+
+def _save_connections() -> None:
+    """Persist the in-memory store to JSON atomically (tmp file + replace)."""
+    try:
+        import json
+
+        _CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _CONNECTIONS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(_connections, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(_CONNECTIONS_FILE)
+    except Exception:  # noqa: BLE001 - persistence is best-effort, never a crash
+        logger.warning("could not persist community connections", exc_info=True)
+
+
+_load_connections()
 
 
 def request_connection(peer_id: str) -> dict[str, Any]:
@@ -359,20 +399,22 @@ def request_connection(peer_id: str) -> dict[str, Any]:
     peer = next((p for p in DEMO_PEERS if p["id"] == peer_id), None)
     if peer is None:
         return {"ok": False, "error": f"Unknown peer: {peer_id}"}
-    existing = _connections.get(peer_id)
-    if existing and existing.get("status") == "connected":
-        return {
-            "ok": True,
+    with _CONNECTIONS_LOCK:
+        existing = _connections.get(peer_id)
+        if existing and existing.get("status") == "connected":
+            return {
+                "ok": True,
+                "peer_id": peer_id,
+                "status": "connected",
+                "message": "Already connected.",
+            }
+        _connections[peer_id] = {
             "peer_id": peer_id,
-            "status": "connected",
-            "message": "Already connected.",
+            "peer_name": peer["name"],
+            "status": "pending",
+            "created_at": "session",
         }
-    _connections[peer_id] = {
-        "peer_id": peer_id,
-        "peer_name": peer["name"],
-        "status": "pending",
-        "created_at": "session",
-    }
+    _save_connections()
     return {
         "ok": True,
         "peer_id": peer_id,
@@ -390,8 +432,10 @@ def accept_connection(peer_id: str) -> dict[str, Any]:
     peer = next((p for p in DEMO_PEERS if p["id"] == peer_id), None)
     if peer is None:
         return {"ok": False, "error": f"Unknown peer: {peer_id}"}
-    if _connections.get(peer_id, {}).get("status") == "pending":
-        _connections[peer_id]["status"] = "connected"
+    with _CONNECTIONS_LOCK:
+        if _connections.get(peer_id, {}).get("status") == "pending":
+            _connections[peer_id]["status"] = "connected"
+    _save_connections()
     return {
         "ok": True,
         "peer_id": peer_id,
@@ -411,3 +455,17 @@ def list_connections() -> list[dict[str, Any]]:
         {"peer_id": r["peer_id"], "peer_name": r["peer_name"], "status": r["status"]}
         for r in _connections.values()
     ]
+
+
+def reset_connections_store(file_path: Path | None = None) -> None:
+    """Test-only helper: point the store at an isolated file and wipe state."""
+    global _CONNECTIONS_FILE, _connections
+    with _CONNECTIONS_LOCK:
+        if file_path is not None:
+            _CONNECTIONS_FILE = Path(file_path)
+        _connections = {}
+    try:
+        if _CONNECTIONS_FILE.exists():
+            _CONNECTIONS_FILE.unlink()
+    except Exception:  # noqa: BLE001 - cleanup is best-effort
+        pass

@@ -5,6 +5,7 @@ import { chatWithAgent, chatWithoutQloo } from '../../api'
 import { GENERIC_LLM_RESULTS } from '../../constants'
 import { TasteCareCard } from '../ui'
 import { sx } from '../sx'
+import { uniqueBy } from '../../utils/list'
 
 // Same prompt drives BOTH sides of the ablation. Single-variable rule: identical
 // system prompt + identical user taste profile; only Qloo entity grounding differs.
@@ -97,7 +98,7 @@ export function WhyQlooTab(props: Props) {
           )}
           {tcResult && tcResult.recommendations.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {tcResult.recommendations.slice(0, 6).map((r, i) => <TasteCareCard key={r.id} rec={r} rank={i + 1} activeConstraints={tcResult.active_constraints || []} />)}
+              {uniqueBy(tcResult.recommendations, r => r.id || r.name || '').slice(0, 6).map((r, i) => <TasteCareCard key={r.id || `rec-${i}`} rec={r} rank={i + 1} activeConstraints={tcResult.active_constraints || []} />)}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

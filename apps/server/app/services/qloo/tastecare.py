@@ -28,7 +28,7 @@ import time
 from typing import Any
 
 from app.services.qloo.client import QlooClient, get_qloo_client
-from app.services.qloo.taste import search_cultural_entities
+from app.services.qloo.taste import DINING_SIGNAL_PREFIXES, is_dining_place, search_cultural_entities
 from app.services.nutrition.usda import match_usda_food, sodium_check, texture_check
 
 logger = logging.getLogger(__name__)
@@ -320,6 +320,12 @@ async def recommend_meals(
             "warnings": health["warnings"] + med["warnings"],
             "usda": health.get("usda"),
         }
+        # Structured health-screening bucket for the UI: candidates that fully
+        # meet the active constraints ("pass") vs. culturally well-matched places
+        # that may carry high-sugar/high-sodium menu items ("review"). This is a
+        # pure label derived from the existing `health.passes` result — no
+        # re-computation, no change to candidate generation or ordering.
+        entity["screening"] = "pass" if entity["health"]["passes"] else "review"
         recommendations.append(entity)
 
     # --- 3b) Score cultural fit (real Qloo-backed affinity) -------------------
@@ -397,6 +403,8 @@ def _normalize_place(raw: dict[str, Any]) -> dict[str, Any]:
 def _is_dining_place(entity: dict[str, Any]) -> bool:
     """True when a Qloo place entity is genuinely a dining venue (not a landmark).
 
+    Single-source-of-truth lives in taste.py (is_dining_place + DINING_SIGNAL_PREFIXES),
+    shared by both recommend_meals and the TasteBridge / Agent dining recommendations.
     Qloo place entities mix restaurants, museums, parks and attractions under the
     single `urn:entity:place` type. Real restaurants carry dining-specific tag URNs
     (verified against the live Hackathon API — e.g. The Modern has
@@ -408,18 +416,7 @@ def _is_dining_place(entity: dict[str, Any]) -> bool:
     (e.g. the deterministic preview pool), we fall back to True so the rule-based
     demo path is unaffected.
     """
-    urns = entity.get("tag_urns") or []
-    if not urns:
-        return True  # preview/offline pool: nothing to discriminate on
-    dining_signals = (
-        "urn:tag:category:place:restaurant",
-        "urn:tag:genre:place:restaurant",
-        "urn:tag:specialty_dish:place:",
-        "urn:tag:cuisine:qloo:",
-        "urn:tag:dining_options:place:",
-        "urn:tag:menu_highlight:qloo:",
-    )
-    return any(any(urn.startswith(prefix) for prefix in dining_signals) for urn in urns)
+    return is_dining_place(entity)
 
 
 def _address_from_props(props: dict[str, Any]) -> str | None:

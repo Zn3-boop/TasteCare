@@ -9,45 +9,76 @@ import type { QlooEntity } from '../api'
 import { PREVIEW_BRIDGE, BRIDGE_DOMAIN_ORDER, DOMAINS, DOMAIN_COLORS } from '../constants'
 import { TasteBridge, type BridgeZone } from './TasteBridge'
 import { sx } from './sx'
+import { uniqueBy } from '../utils/list'
 
 type Props = {
   anchor: string
   crossRes: Record<string, QlooEntity[]>
   qlooEnabled: boolean
   onExplore: () => void
+  personaName?: string
+  /** The current persona's own taste anchors (from the PersonaPicker) — rendered
+   *  as the innermost 'personal' ring so a created person's habits are visible
+   *  on the bridge even before any live Qloo data arrives (feedback). Maria's
+   *  preset keeps the original look, so App passes `[]` for her. */
+  personaHabits?: string[]
+  animateText?: boolean
+  /** Reveal-on-arrival: progressive node/edge assembly when the graph data changes. */
+  reveal?: boolean
 }
 
-export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore }: Props) {
+export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore, personaName = 'Maria', personaHabits = [], animateText = false, reveal = false }: Props) {
   const hasLive = qlooEnabled && Object.keys(crossRes).some(k => (crossRes[k] || []).length > 0)
 
   const zones = useMemo<BridgeZone[]>(() => {
+    // The persona's own habits always ride the innermost ring (custom personas),
+    // so "what I entered when creating this person" is never lost to live/preview
+    // cross-domain results. Deduped — an anchor typed twice must not create two
+    // nodes with the same SVG key (React 19 crashes on duplicate keys).
+    const personalZone: BridgeZone[] = personaHabits.length
+      ? [{
+          domain: 'personal',
+          nodes: uniqueBy(personaHabits, h => h.trim().toLowerCase()).map(name => ({
+            entity_id: `habit-${name.trim().toLowerCase()}`,
+            name: name.trim(),
+            why: 'Entered when creating this persona',
+            popularity: 0.5,
+          })),
+        }]
+      : []
     if (hasLive) {
-      return BRIDGE_DOMAIN_ORDER
-        .filter(d => (crossRes[d] || []).length > 0)
+      return [
+        ...personalZone,
+        ...BRIDGE_DOMAIN_ORDER
+          .filter(d => (crossRes[d] || []).length > 0)
+          .map(d => ({
+            domain: d,
+            nodes: uniqueBy(crossRes[d] || [], e => e.id || e.name).map(e => ({
+              entity_id: e.id || `${d}-${e.name}`,
+              name: e.name,
+              popularity: e.score ?? undefined,
+            })),
+          })),
+      ]
+    }
+    return [
+      ...personalZone,
+      ...BRIDGE_DOMAIN_ORDER
+        .filter(d => (PREVIEW_BRIDGE[d] || []).length > 0)
         .map(d => ({
           domain: d,
-          nodes: crossRes[d].map(e => ({
-            entity_id: e.id || `${d}-${e.name}`,
-            name: e.name,
-            popularity: e.score ?? undefined,
+          nodes: PREVIEW_BRIDGE[d].map(n => ({
+            entity_id: `preview-${n.name}`,
+            name: n.name,
+            why: n.why,
+            popularity: n.popularity,
           })),
-        }))
-    }
-    return BRIDGE_DOMAIN_ORDER
-      .filter(d => (PREVIEW_BRIDGE[d] || []).length > 0)
-      .map(d => ({
-        domain: d,
-        nodes: PREVIEW_BRIDGE[d].map(n => ({
-          entity_id: `preview-${n.name}`,
-          name: n.name,
-          why: n.why,
-          popularity: n.popularity,
         })),
-      }))
-  }, [hasLive, crossRes])
+    ]
+  }, [hasLive, crossRes, personaHabits])
 
   const dataSource: 'live' | 'preview' = hasLive ? 'live' : 'preview'
-  const centerLabel = (anchor || 'Frank Sinatra').trim()
+  const centerLabel = (anchor || personaName).trim()
   const seen = zones.filter(z => z.nodes.length).map(z => z.domain)
 
   return (
@@ -75,7 +106,7 @@ export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore }: Pr
           <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginTop: 12 }}>
             {seen.map(d => (
               <span key={d} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 8, background: '#111827', border: `1px solid ${DOMAIN_COLORS[d] || '#374151'}66`, color: '#D1D5DB' }}>
-                {DOMAINS.find(x => x.key === d)?.label || d}
+                {DOMAINS.find(x => x.key === d)?.label || (d === 'personal' ? '❤️ Personal taste' : d)}
               </span>
             ))}
           </div>
@@ -99,6 +130,19 @@ export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore }: Pr
               >
                 ● Live Qloo data
               </span>
+            ) : qlooEnabled ? (
+              <span
+                title="QLOO_API_KEY is set — live bridge results are on the way (search the 💡 Tastes tab or run a cross-domain fetch to populate)"
+                style={{
+                  fontSize: 12.5, fontWeight: 800, letterSpacing: 0.4,
+                  color: '#052E16', background: '#34D399',
+                  padding: '6px 14px', borderRadius: 999,
+                  border: '1px solid #6EE7B7',
+                  boxShadow: '0 0 12px #34D39944',
+                }}
+              >
+                ● Qloo connected — building live bridge
+              </span>
             ) : (
               <span
                 title="QLOO_API_KEY is not set — showing the clearly-labelled demo preview"
@@ -114,8 +158,8 @@ export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore }: Pr
               </span>
             )}
           </div>
-          <div style={{ fontSize: 10, color: '#6B7280', fontStyle: 'italic', marginTop: 6 }}>
-            central anchor: “{centerLabel}”
+          <div style={{ fontSize: 10, fontStyle: 'italic', color: '#6B7280', marginTop: 6 }}>
+            central anchor: “{centerLabel}” — bound to {personaName}
           </div>
         </div>
 
@@ -128,7 +172,7 @@ export function TasteBridgeHero({ anchor, crossRes, qlooEnabled, onExplore }: Pr
             title="Open the interactive Taste Bridge"
             style={{ cursor: 'pointer' }}
           >
-            <TasteBridge compact centerLabel={centerLabel} zones={zones} dataSource={dataSource} />
+            <TasteBridge compact centerLabel={centerLabel} zones={zones} dataSource={dataSource} animateText={animateText} reveal={reveal} qlooEnabled={qlooEnabled} />
           </div>
         </div>
       </div>

@@ -81,6 +81,9 @@ async def test_recommend_meals_resolves_and_calls_insights(client):
     by_name = {r["name"]: r for r in result["recommendations"]}
     assert by_name["Maccheroni"]["health"]["passes"] is True
     assert by_name["Salt & Smoke BBQ"]["health"]["passes"] is False
+    # structured screening bucket derived from the health check (no recompute)
+    assert by_name["Maccheroni"]["screening"] == "pass"
+    assert by_name["Salt & Smoke BBQ"]["screening"] == "review"
     # sorted: passing candidate first
     assert result["recommendations"][0]["name"] == "Maccheroni"
     # insights called with place type + age signal + location
@@ -129,6 +132,9 @@ async def test_recommend_meals_medication_aware_changes_results(client):
     by_name = {r["name"]: r for r in result["recommendations"]}
     assert by_name["Grapefruit Grill"]["health"]["passes"] is False
     assert by_name["Risotto House"]["health"]["passes"] is True
+    # screening mirrors the raw health check for the medication path too
+    assert by_name["Grapefruit Grill"]["screening"] == "review"
+    assert by_name["Risotto House"]["screening"] == "pass"
     # flagged dish sinks below the clean dish when medication-aware is on
     assert result["recommendations"][0]["name"] == "Risotto House"
 

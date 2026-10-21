@@ -23,7 +23,7 @@ if hasattr(sys.stderr, 'reconfigure') and (sys.stderr.encoding or '').lower() !=
 # Web demo (apps/web) focus: import only the 6 routers used by the web demo.
 # Desktop routers (automation / voice / desktop / provider / browser / agent …)
 # are intentionally not imported; their files no longer expose routes.
-from app.api import ablation, chat, community, health, memory, qloo, tastecare, tools
+from app.api import ablation, chat, community, health, memory, qloo, stt, tastecare, tools
 from app.utils.response_cleaner import clean_fastapi_response_body
 
 
@@ -120,6 +120,7 @@ async def Health_check():
 API_V1_PREFIX = "/api/v1"
 app.include_router(health.router)
 app.include_router(chat.router, prefix=API_V1_PREFIX)
+app.include_router(stt.router, prefix=API_V1_PREFIX)
 app.include_router(tools.router, prefix=API_V1_PREFIX)
 app.include_router(qloo.router, prefix=API_V1_PREFIX)
 app.include_router(tastecare.router, prefix=API_V1_PREFIX)

@@ -8,10 +8,12 @@ TasteCare uses Qloo's cultural taste graph to help an older adult find meals tha
 
 ## 30-second judge path
 
-1. Open the hosted demo. The Senior Dining tab automatically loads Maria's profile.
-2. Click **"Find Meals She'd Actually Love"**.
-3. Look for the green **Qloo taste graph — recommendations grounded live** badge and the grounding panel under the answer. The panel lists the resolved cultural anchors; it currently shows honest preview placeholders while the backend `taste_entities`/`qloo_context` passthrough ships.
-4. Switch to the **"Why Qloo"** tab and compare side-by-side:
+1. Open the hosted demo. A global **PersonaPicker** at the top shows Maria (the built-in preset) — or switch to a custom person you create (name, taste anchors, health constraints, location). The whole app binds to that one person; the persona id and any custom profiles are persisted in `localStorage`, so a page reload lands back on the SAME person (tab position rides the URL hash).
+2. The Senior Dining tab is the **ONE DEMO**: a 🚀 strip at the top maps the whole journey — Persona → Search & Health Screening → Taste Bridge → Evidence — with a one-click link to the ⚖️ Evidence tab. A green **🛡️ Health screening passed** band names the active constraints (low-sodium, easy-to-chew, medication-aware) above every screened meal.
+3. Click **"Try Maria's Story"** (or the custom person's story) — a one-line process strip shows the real Qloo query lifecycle (`⏳ Querying Qloo Taste Graph… → ✓ N entities matched (T s)`), followed by the screening band and the grounded recommendations.
+4. Look for the green **Qloo taste graph — recommendations grounded live** badge and the grounding panel under the answer. The panel lists the resolved cultural anchors with their **real Qloo match scores** (e.g. "92%"); a **Taste Bridge** constellation on the first screen animates nodes + edges on arrival and re-centers on whatever persona is selected — the same reusable bridge the Discover tab draws, with a compact persona Journey strip underneath that mirrors the constellation exactly.
+5. The 💡 Tastes tab is now the persona's **taste profile**: click any anchor (or search result) to instantly recommend for it — and the domain pills instantly re-filter both search results and recommendations. The Community tab shows **"Matching as {persona}"** with a one-click button that reuses the persona's anchors in the peer matcher; connections are stored in a lightweight server-side JSON file and survive restarts.
+6. Open the **⚖️ Evidence** tab (Why Qloo + Ablation stacked in one place) and compare:
    - **With Qloo** — culturally grounded recommendations powered by live Qloo knowledge base.
    - **Without Qloo** — controlled generic LLM baseline (static reference output for ablation comparison, not a second live runtime call).
 
@@ -92,7 +94,7 @@ performance gap comes from Qloo grounding and nothing else:
    senior-dining prompts through Variant A (rule-based screening, **no Qloo**)
    and Variant B (the real Qloo TasteCare pipeline), sharing identical
    candidates, so the on-screen difference is exactly the cultural grounding.
-   The web **Ablation tab** renders both side-by-side in one click with an
+   The web **⚖️ Evidence tab** (Ablation part) renders both side-by-side in one click with an
    honest live-vs-preview indicator.
 
 Full methodology, the controlled-variable table, and validity threats are in
@@ -112,6 +114,11 @@ flowchart LR
 ```
 
 For `/api/v1/chat/agent`, the backend extracts cultural likes, resolves them with `search_cultural_entities()`, injects matching entities into the LLM prompt, and returns `taste_entities`, `taste_data_source`, and `qloo_context`. The web Agent tab renders the evidence panel when resolved entities are present. A live panel requires a configured Qloo key and actual Qloo results; missing credentials or unresolved entities are not presented as live grounding.
+
+Two final-contract behaviors keep the demo honest:
+
+- **Fail loudly on location mismatch.** Dining recommendations are verified against the requested city. Venues with no verifiable city signal are surfaced as mismatches *in the reply* (never silently substituted, never dropped without a report); non-dining entities are always kept.
+- **Real match scores, passthrough only.** The grounding panel shows Qloo's actual `score`/`popularity` as percentages (e.g. "92%") for resolved entities. When Qloo supplies neither, the score badge is simply omitted — the UI never fabricates a number.
 
 Additional Qloo capabilities include entity search, taste-based recommendations, cross-domain discovery, cultural-fit scoring, and TasteCare dining recommendations. Cultural matching and health constraints are separate signals. This prototype does not provide medical advice.
 
@@ -144,7 +151,7 @@ cd apps/server
 python -m pytest tests/test_chat_agent_qloo_grounding.py -q
 ```
 
-These focused tests cover entity resolution, prompt injection, response metadata, and the disabled-Qloo path. The backend also includes offline tests and optional live-Qloo tests that require a valid API key.
+These focused tests cover entity resolution, prompt injection, response metadata, the disabled-Qloo path, **match-score passthrough into the reply context**, **city-token location detection**, and the **fail-loud `_verify_dining_location` guard** (mismatches reported, never dropped). The backend also includes offline tests and optional live-Qloo tests that require a valid API key.
 
 ## Deploy
 

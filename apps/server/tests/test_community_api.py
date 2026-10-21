@@ -13,7 +13,16 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from app.main import app  # noqa: E402
-from app.services.community.matcher import _connections  # noqa: E402
+from app.services.community.matcher import _connections, reset_connections_store  # noqa: E402
+
+# Isolate the persistent connection store to a throwaway temp file so these API
+# tests never touch the demo's real server/data/community_connections.json.
+from tempfile import gettempdir
+from pathlib import Path
+import app.services.community.matcher as matcher_mod
+
+matcher_mod._CONNECTIONS_FILE = Path(gettempdir()) / "test_community_api_connections.json"
+reset_connections_store()
 
 client = TestClient(app)
 

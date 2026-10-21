@@ -235,10 +235,10 @@ class TestAblationAPI:
         assert body["data_source"] == "preview"
         assert len(body["comparison"]) == len(_DEMO_CASES)
         for row in body["comparison"]:
-            assert set(row) == {"case", "variant_a", "variant_b"}
+            assert set(row) == {"case", "variant_a", "variant_b", "diff"}
             va, vb = row["variant_a"], row["variant_b"]
             for v in (va, vb):
-                for key in ("top_pick", "has_cultural_match", "cultural_grounding", "data_source", "rationale"):
+                for key in ("top_pick", "has_cultural_match", "cultural_grounding", "data_source", "rationale", "grounding_note"):
                     assert key in v
 
     def test_comparison_endpoint_live(self):

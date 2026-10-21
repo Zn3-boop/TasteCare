@@ -978,6 +978,10 @@ class TestEndToEndFlow:
         assert "health" in rec
         assert rec["health"]["passes"] is False
         assert len(rec["health"]["warnings"]) > 0
+        # structured screening bucket is derived from the same health check
+        assert "screening" in rec
+        assert rec["screening"] in {"pass", "review"}
+        assert rec["screening"] == ("pass" if rec["health"]["passes"] else "review")
 
     @pytest.mark.asyncio
     async def test_flow_filters_non_dining(self):

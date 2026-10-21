@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
-  communityAccept, communityConnect, communityMatch,
+  communityAccept, communityConnect, communityConnections, communityMatch,
   type CommunityMatchResponse,
 } from '../api'
 import { useToast } from './useToast'
@@ -22,6 +22,21 @@ export function useCommunity() {
     soft_chewable: true,
   })
   const [result, setResult] = useState<CommunityMatchResponse | null>(null)
+  // Connections live in a lightweight server-side JSON store (server/data/
+  // community_connections.json) and SURVIVE restarts — this map re-hydrates them
+  // on load so already-connected peers show "✅ Connected" after a refresh.
+  const [saved, setSaved] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let alive = true
+    communityConnections().then(res => {
+      if (!alive) return
+      const map: Record<string, string> = {}
+      res.connections.forEach(c => { map[c.peer_id] = c.status })
+      setSaved(map)
+    }).catch(() => { /* best-effort */ })
+    return () => { alive = false }
+  }, [])
 
   const doMatch = useCallback(async () => {
     const likes = likesText.split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -80,6 +95,6 @@ export function useCommunity() {
 
   return {
     likesText, setLikesText, location, setLocation, constraints, toggleConstraint,
-    result, doMatch, doConnect, doAccept,
+    result, saved, doMatch, doConnect, doAccept,
   }
 }

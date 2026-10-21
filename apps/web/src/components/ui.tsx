@@ -6,6 +6,7 @@ import {
   DOMAIN_COLORS, CONSTRAINT_META, EN_CONSTRAINT_LABEL, EN_CONSTRAINT_ICON,
 } from '../constants'
 import { sx } from './sx'
+import { SafeImg } from './SafeImg'
 
 export function SkeletonRow() {
   return (
@@ -55,6 +56,7 @@ export function EntityCard({ entity, rank, onClick }: { entity: QlooEntity; rank
 
 export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore = false }: { rec: TasteCareRecommendation; rank?: number; activeConstraints?: string[]; showFitScore?: boolean }) {
   const health = rec.health
+  const screening = rec.screening ?? (health?.passes ? 'pass' : 'review')
   const warnings = health?.warnings || []
   const wLower = warnings.join(' ').toLowerCase()
   const constraintFail = (c: string) =>
@@ -73,7 +75,7 @@ export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore 
         )}
         {rec.image ? (
           <div style={{ width: 104, height: 72, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg,#1F2937,#374151)' }}>
-            <img src={rec.image} alt={rec.name} loading="lazy" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            <SafeImg src={rec.image} alt={rec.name} fallbackChar={rec.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           </div>
         ) : (
           <div style={{ width: 104, height: 72, borderRadius: 8, flexShrink: 0, background: 'linear-gradient(135deg,#FF6B3518,#1F2937)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🍽️</div>
@@ -104,12 +106,12 @@ export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore 
       </div>
       {rec.tags && rec.tags.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {rec.tags.slice(0, 6).map((t, i) => <span key={i} style={{ fontSize: 10, color: '#9CA3AF', background: '#1F2937', padding: '2px 8px', borderRadius: 6 }}>{t}</span>)}
+          {Array.from(new Set((rec.tags || []).slice(0, 6))).map((t) => <span key={t} style={{ fontSize: 10, color: '#9CA3AF', background: '#1F2937', padding: '2px 8px', borderRadius: 6 }}>{t}</span>)}
         </div>
       )}
       {activeConstraints.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {activeConstraints.map((c) => {
+          {Array.from(new Set(activeConstraints)).map((c) => {
             const meta = CONSTRAINT_META.find((m) => m.key === c)
             const fail = constraintFail(c)
             const label = EN_CONSTRAINT_LABEL[c] || meta?.label || c
@@ -153,7 +155,7 @@ export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore 
         </div>
         <div style={{ fontSize: 11.5, lineHeight: 1.5, color: health?.passes ? '#6EE7B7' : '#FCA5A5' }}>
           <span style={{ fontWeight: 700, color: '#3B82F6' }}>🛡️ Safety check:</span>{' '}
-          {rec.safety_validation || (health?.passes ? 'All active constraints passed.' : 'Review needed for your active health constraints.')}
+          {rec.safety_validation || (screening === 'pass' ? 'All active constraints passed' : 'Some menu items may violate constraints; select dishes carefully')}
         </div>
       </div>
     </div>

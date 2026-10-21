@@ -67,24 +67,60 @@ UNKNOWN_INTENT = "unknown"
 # 规则关键词集合（B档红线：意图识别仅规则匹配，无本地 LLM）。
 # 英文关键词使用词边界正则（`\beat\b` 不会误命中 "weather"），
 # 中文关键词无词边界概念，退化为子串匹配。
+#
+# 词表覆盖 Qloo 的全部七个文化域（dining/film/music/book/fashion/travel/
+# podcast）+ 需求表达（"want to get"/"looking for" 等），保证 "I want to get
+# some books"（用户要书）这类不带 "recommend" 的文化请求也能进入 Qloo 节点。
 _QLOO_INTENT_EN_WORDS = (
     "recommend", "recommendation", "recommendations",
     "suggest", "suggestion", "suggestions",
+    "advice", "advices", "advise",
+    "tell me", "show me", "give me", "help me",
+    "what can", "what should", "what would", "what to", "what about",
+    "how about", "where can", "where should",
+    # dining
     "food", "foods", "dinner", "lunch", "breakfast", "meal", "meals",
     "eat", "eats", "eating", "ate",
     "restaurant", "restaurants", "dining", "cuisine", "dish", "dishes",
     "recipe", "recipes", "cook", "cooking", "cooked",
     "snack", "snacks", "menu", "chef", "culinary", "gourmet",
+    "hungry",
+    # film / tv
+    "watch a movie", "watch a film", "watch movies", "watch films",
+    "see a movie", "see a film", "a movie to watch", "a film to watch",
+    "movie", "movies", "film", "films", "cinema", "actor", "actress",
+    "tv show", "tv shows", "series", "netflix",
+    # music
+    "music", "song", "songs", "album", "albums", "band", "bands",
+    "artist", "artists", "concert", "gig", "vinyl", "record", "records",
+    "listen to", "playlist",
+    # book
+    "book", "books", "read a book", "read some books", "a book to read",
+    "novel", "novels", "reading", "author", "literature",
+    # fashion
+    "wear", "wearing", "outfit", "outfits", "dress", "fashion", "clothes",
+    "clothing", "style", "what to wear", "what should i wear", "suit",
+    # travel
+    "travel", "trip", "trips", "vacation", "holiday", "destination",
+    "visit", "go somewhere", "place to go", "places to go", "travel to",
+    # podcast
+    "podcast", "podcasts",
+    # 需求表达：没有推荐动词但仍然是文化请求
+    "want to get", "wants to get", "want to buy", "wants to buy",
+    "looking for", "need a", "need some", "need to find",
+    "get some", "find me",
+    # taste profile signals
     "taste", "tastes",
     "enjoy", "enjoys", "enjoyed", "enjoying",
     "love", "loves", "loved",
     "like", "likes", "liked",
     "favorite", "favourite", "favorites", "favourites",
-    "hungry",
     "fan of", "what would", "would he", "would she",
 )
 _QLOO_INTENT_CN_WORDS = (
     "推荐", "晚餐", "午餐", "早餐", "美食", "餐厅", "吃什么", "做饭", "菜谱",
+    "书", "看书", "读", "买", "穿", "衣服", "旅行", "旅游", "去哪", "哪里",
+    "电影", "剧", "音乐会", "音乐", "播客", "逛街", "品牌", "搭配",
 )
 _QLOO_INTENT_EN_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(w) for w in _QLOO_INTENT_EN_WORDS) + r")\b",
@@ -92,8 +128,35 @@ _QLOO_INTENT_EN_RE = re.compile(
 )
 
 
+_PURE_CHITCHAT_EN_RE = re.compile(
+    r"^(?:hi|hi there|hello|hello there|hey|hey there|good morning|good afternoon|"
+    r"good evening|how are you|how's it going|how is it going|thanks|thank you|"
+    r"thank you so much|thanks a lot|bye|goodbye|good night|help|help me)$",
+    re.IGNORECASE,
+)
+_PURE_CHITCHAT_CN = (
+    "你好", "您好", "早上好", "下午好", "晚上好", "谢谢", "谢谢你", "再见", "拜拜",
+)
+
+
+def _looks_like_chitchat(raw_query: str) -> bool:
+    """True for pure social / meta chatter with zero cultural content.
+
+    These messages would produce an EMPTY message-like pool, so sending them to
+    the Qloo node wastes a live call (and can confuse the demo with a coffee
+    recommendation for a "hello"). Anything else — even without a recommend
+    verb ("I want to get some books", "给妈妈买件衣服") — counts as a request.
+    """
+    low = (raw_query or "").strip().lower()
+    if not low:
+        return True
+    if _PURE_CHITCHAT_EN_RE.match(low):
+        return True
+    return any(kw in low for kw in _PURE_CHITCHAT_CN)
+
+
 def classify_intent(raw_query: str) -> str:
-    """规则关键词意图分类（B档）：命中任一餐饮/推荐信号 → qloo_recommend，否则 unknown。"""
+    """规则关键词意图分类（B档）：命中任一文化/推荐信号 → qloo_recommend，否则 unknown。"""
     low = (raw_query or "").lower()
     if _QLOO_INTENT_EN_RE.search(low):
         return QLOO_INTENT
@@ -107,10 +170,25 @@ def route_intent(state: AgentState) -> str:
 
     防御性兜底：若 `intent_node` 的输出在状态合并中缺失（intent 为空），
     按 raw_query 重新 `classify_intent`，保证图在缺省状态下不误入 fallback。
+
+    终版契约④（persona 锚点已注入时拓宽入口）：当 chat.py 已将 persona 的
+    taste anchors 注入 `entities.cultural_likes`（用户跟随/直接点击了一个
+    persona），即使问题文本不含显式推荐动词（如 "I want to get some books"、
+    "给妈妈买件衣服"），也进入 Qloo 节点——种子里有 persona 锚点兜底，Qloo
+    必然能解析并产出推荐。纯闲聊（hello/thanks/weather）除外。这保证
+    "点击 persona 后怎么问都走 Qloo" 的预期，而不是让 fallback 误报
+    "实体无法映射"。
     """
     if state.get("intent") == QLOO_INTENT:
         return "build_qloo_query"
-    if classify_intent(str(state.get("raw_query", ""))) == QLOO_INTENT:
+    raw_query = str(state.get("raw_query", ""))
+    if classify_intent(raw_query) == QLOO_INTENT:
+        return "build_qloo_query"
+    entities = state.get("entities") or {}
+    likes = entities.get("cultural_likes") or []
+    if isinstance(likes, list) and likes and not _looks_like_chitchat(raw_query):
+        # persona 锚点已在种子列表：交给 Qloo 节点用锚点接地（mixed 模式仍会
+        # 合并 message likes，locked 模式只读 persona 锚点）。
         return "build_qloo_query"
     return "fallback_node"
 

@@ -15,6 +15,10 @@ export const DOMAINS = [
 export const DOMAIN_COLORS: Record<string, string> = {
   music: '#1DB954', film: '#E50914', dining: '#FF6B35',
   fashion: '#C77DFF', travel: '#00B4D8', podcast: '#FFB703', book: '#8B5CF6',
+  // 'personal' — the persona's own taste anchors entered in the PersonaPicker,
+  // rendered as the innermost ring of the Taste Bridge so a custom person's
+  // habits are visible even before any live Qloo data arrives.
+  personal: '#F472B6',
 }
 
 export const SENIOR_PERSONA = {
@@ -128,19 +132,6 @@ export const PREVIEW_BRIDGE: Record<string, BridgeNodeData[]> = {
 }
 
 export const BRIDGE_DOMAIN_ORDER = ['music', 'dining', 'film', 'travel', 'fashion', 'podcast', 'book']
-
-// Maria's cross-domain journey: FIXED persona + FIXED path skeleton + FIXED seeds.
-// The CONTENT of each step is DYNAMIC — live Qloo cross-domain results when a key
-// is set, otherwise the clearly-labelled PREVIEW_BRIDGE pool. This is deliberately
-// half-dynamic: the demo is always controllable (never a runaway free-running
-// chain) and never fakes a live claim (without a key it says "demo preview").
-export const MARIA_JOURNEY: { domain: string; icon: string; label: string; seed: string }[] = [
-  { domain: 'music', icon: '🎵', label: 'Maria loves', seed: 'Frank Sinatra' },
-  { domain: 'dining', icon: '🍽️', label: '…dines at', seed: 'Jazz-era Supper Club' },
-  { domain: 'film', icon: '🎬', label: '…watches', seed: 'Guys and Dolls' },
-  { domain: 'travel', icon: '✈️', label: '…travels to', seed: 'Little Italy, NYC' },
-  { domain: 'fashion', icon: '👗', label: '…wears', seed: 'Vintage Italian Tailoring' },
-]
 
 export const BRIDGE_LEGEND = [
   { domain: 'music', label: 'Music' },

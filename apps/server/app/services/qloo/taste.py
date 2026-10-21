@@ -79,6 +79,11 @@ def _normalize_entity(raw: dict[str, Any]) -> dict[str, Any]:
             image = img
     tags = raw.get("tags") or []
     tag_names = [t.get("name", "") for t in tags if isinstance(t, dict) and t.get("name")]
+    tag_urns = [
+        t.get("tag_id") or t.get("id") or t.get("value")
+        for t in tags
+        if isinstance(t, dict) and (t.get("tag_id") or t.get("id") or t.get("value"))
+    ]
     return {
         "id": entity_id,
         "entity_id": entity_id,
@@ -87,6 +92,7 @@ def _normalize_entity(raw: dict[str, Any]) -> dict[str, Any]:
         "domain": ENTITY_TYPE_TO_DOMAIN.get(subtype, subtype),
         "image": image,
         "tags": tag_names,
+        "tag_urns": tag_urns,
         "popularity": raw.get("popularity"),
         "description": props.get("description") if isinstance(props, dict) else None,
     }
@@ -104,19 +110,139 @@ def _extract_entities(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+# Qloo `urn:entity:place` mixes restaurants with museums, parks, dams, and other
+# landmarks under a single entity type. Only entities carrying at least one
+# dining-specific tag URN are genuinely dining venues. Verified live against the
+# Hackathon API — e.g. The Modern has `category:place:restaurant`,
+# `genre:place:restaurant:american`, `cuisine:qloo:*`, `specialty_dish:place:*`,
+# `dining_options:place:*`; Hoover Dam Museum carries only `view`/`amenities`
+# tags and must be filtered out of dining recommendations.
+#
+# NOTE (verified live 2026-10-18): when `filter_tags=[category:place:restaurant]`
+# is passed to /v2/insights, Qloo *appends* the restaurant tag to EVERY returned
+# place — including Phoenix Art Museum, Scottsdale Fashion Square (a mall),
+# Antelope Point Marina and Pike Place Fish Market. A positive dining-signal check
+# alone is therefore NOT enough. We combine it with a negative check: any entity
+# carrying an explicit non-dining category (museum / shopping mall / marina /
+# market / event venue …) is rejected even if Qloo tagged it as a restaurant.
+DINING_SIGNAL_PREFIXES: tuple[str, ...] = (
+    "urn:tag:category:place:restaurant",
+    "urn:tag:genre:place:restaurant",
+    "urn:tag:specialty_dish:place:",
+    "urn:tag:cuisine:qloo:",
+    "urn:tag:dining_options:place:",
+    "urn:tag:menu_highlight:qloo:",
+)
+
+# Explicitly non-dining place categories that must never appear in a restaurant
+# list, even when Qloo's filter_tags annotates them with `category:place:restaurant`
+# (a museum café / mall food court triggers that tag). Matched as SUBSTRINGS of the
+# category:place local name (e.g. `seafood_market` → market, `ski_shop` → ski_shop)
+# — real dining venues never carry these category names alongside restaurant tags.
+NON_DINING_CATEGORY_MARKERS: tuple[str, ...] = (
+    "museum",
+    "art_gallery",
+    "shopping_mall",
+    "clothing_store",
+    "department_store",
+    "retail",
+    "market",
+    "marina",
+    "houseboat",
+    "rv_park",
+    "boat",
+    "zoo",
+    "aquarium",
+    "casino",
+    "cinema",
+    "movie_theater",
+    "bowling",
+    "arcade",
+    "tourist_attraction",
+    "stadium",
+    "gym",
+    "spa",
+    "amusement",
+    "rest_stop",
+    "service_area",
+    "event_venue",
+    "wedding_venue",
+    "wedding_planner",
+    "night_club",
+    "adult_entertainment",
+    "strip_club",
+    "ski_shop",
+    "ski_club",
+    "ski_school",
+    "golf_course",
+    "golf_club",
+    "park",
+)
+
+
+def _category_local_names(urns: list[str]) -> list[str]:
+    """Extract the local name(s) after `urn:tag:category:place:` from tag URNs."""
+    prefix = "urn:tag:category:place:"
+    return [u[len(prefix):] for u in urns if u.startswith(prefix)]
+
+
+def is_dining_place(entity: dict[str, Any]) -> bool:
+    """True when a Qloo place entity is genuinely a dining venue (not a landmark).
+
+    Two checks, combined conservatively:
+      1. Empty tag_urns → True (the deterministic preview/rule pool has no tag
+         URNs — mirrors tastecare._is_dining_place, keeps the no-key demo path).
+      2. Otherwise the entity must carry at least one dining-signal tag URN AND
+         must NOT carry an explicit non-dining category (museum / mall / marina /
+         market / bowling …). The negative check is required because Qloo's
+         filter_tags annotates mixed places with the restaurant tag.
+    """
+    urns = [str(u) for u in (entity.get("tag_urns") or [])]
+    if not urns:
+        return True
+    has_dining_signal = any(
+        any(urn.startswith(prefix) for prefix in DINING_SIGNAL_PREFIXES) for urn in urns
+    )
+    if not has_dining_signal:
+        return False
+    categories = _category_local_names(urns)
+    has_non_dining_category = any(
+        any(marker in cat for marker in NON_DINING_CATEGORY_MARKERS) for cat in categories
+    )
+    return not has_non_dining_category
+
+
+def filter_dining_places(
+    entities: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep only genuine dining venues from a place list; return (kept, dropped)."""
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for entity in entities or []:
+        if is_dining_place(entity):
+            kept.append(entity)
+        else:
+            dropped += 1
+    return kept, dropped
+
+
 async def search_cultural_entities(
     client: QlooClient,
     query: str,
     domain: str | None = None,
     limit: int = 10,
+    entity_types: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Search the taste graph for entities matching a human query.
 
     Maps a friendly domain (music/film/dining/...) to the Qloo entity type URN.
+    `entity_types` lets callers override with raw type URNs — anchor resolution
+    uses it to prefer the culturally-correct type instead of being forced into
+    the recommendation target domain (the demo bug that turned "Christopher
+    Nolan films" + dining target into a beer-garden place entity).
     """
-    entity_types = None
     etype = resolve_entity_type(domain)
-    if etype:
+    if entity_types is None and etype:
         entity_types = [etype]
     payload = await client.search(query, entity_types=entity_types, take=limit)
     entities = _extract_entities(payload)
@@ -135,11 +261,19 @@ async def get_taste_based_recommendations(
     target_domain: str | None = None,
     limit: int = 10,
     store: FeedbackStore | None = None,
+    location_query: str | None = None,
+    exclude_entities: list[str] | None = None,
 ) -> dict[str, Any]:
     if not seed_entity_ids:
         return {"recommendations": [], "source": "qloo", "error": "no_seed_entities"}
 
     filter_type = resolve_entity_type(target_domain) or "urn:entity:artist"
+
+    # API-level bias for dining: Qloo's `category:place:restaurant` tag URN is a
+    # real filter (verified live) that makes insights skew toward restaurants
+    # instead of dams/museums. Client-side filter_dining_places() below still
+    # drops stragglers (museums / malls that Qloo also annotates with the tag).
+    filter_tags = ["urn:tag:category:place:restaurant"] if filter_type == "urn:entity:place" else None
 
     # Live mode: route through the user's 👍/👎 preference overlay so feedback
     # changes the next round of recommendations (liked prepends to the signal list,
@@ -152,12 +286,18 @@ async def get_taste_based_recommendations(
             take=limit,
             filter_type=filter_type,
             store=store,
+            filter_tags=filter_tags,
+            location_query=location_query,
+            exclude_entities=exclude_entities,
         )
     else:
         payload = await client.insights(
             filter_type=filter_type,
             signal_entities=seed_entity_ids,
             take=limit,
+            filter_tags=filter_tags,
+            location_query=location_query,
+            exclude_entities=exclude_entities,
         )
     if "error" in payload:
         logger.warning(
@@ -169,11 +309,25 @@ async def get_taste_based_recommendations(
             "error": payload.get("error"),
         }
     recs = [_normalize_entity(e) for e in _extract_entities(payload)]
+
+    # Entity-type filter (P1): Qloo `urn:entity:place` mixes restaurants with
+    # museums/parks/dams/bowling alleys. When the target domain is dining, drop
+    # every non-dining place so recommendations only ever surface restaurants.
+    filtered_non_dining = 0
+    if filter_type == "urn:entity:place":
+        recs, filtered_non_dining = filter_dining_places(recs)
+        if filtered_non_dining:
+            logger.info(
+                f"Filtered {filtered_non_dining} non-dining place entities from "
+                f"dining recommendations (target_domain={target_domain!r})"
+            )
+
     return {
         "recommendations": recs,
         "source": "qloo",
         "seed_count": len(seed_entity_ids),
         "target_domain": target_domain,
+        "filtered_non_dining": filtered_non_dining,
     }
 
 
@@ -183,13 +337,20 @@ async def get_cross_domain_discovery(
     domains: list[str] | None = None,
     per_domain_limit: int = 5,
     store: FeedbackStore | None = None,
+    location_query: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     if domains is None:
         domains = ["music", "film", "dining", "fashion", "travel", "podcast", "book"]
     results: dict[str, list[dict[str, Any]]] = {}
+    # Only forward location_query when truthy: callers that patch
+    # get_taste_based_recommendations with fixed-signature fakes must not receive
+    # an unexpected kwarg (backward-compatible with every existing mock).
+    rec_kwargs: dict[str, Any] = {}
+    if location_query:
+        rec_kwargs["location_query"] = location_query
     for domain in domains:
         rec = await get_taste_based_recommendations(
-            client, seed_entity_ids, target_domain=domain, limit=per_domain_limit, store=store,
+            client, seed_entity_ids, target_domain=domain, limit=per_domain_limit, store=store, **rec_kwargs,
         )
         results[domain] = rec.get("recommendations", [])
     return results
@@ -204,6 +365,10 @@ async def get_taste_similarity_score(
     if not entity_ids:
         return {"similar": [], "error": "no_entities"}
     filter_type = target_type or "urn:entity:artist"
+    # Same API-level dining bias as recommendations: ask Qloo for restaurants
+    # up-front so "similar places" doesn't surface dams/museums, then client-side
+    # filter_dining_places() drops stragglers.
+    filter_tags = ["urn:tag:category:place:restaurant"] if filter_type == "urn:entity:place" else None
     # Qloo's hackathon API returns an EMPTY result set when signal_entities ==
     # results_entities (verified live). For "similar to X", the correct shape is
     # signal-only: anchor on the given entities and let Qloo rank the closest
@@ -212,11 +377,17 @@ async def get_taste_similarity_score(
         filter_type=filter_type,
         signal_entities=entity_ids,
         take=limit,
+        filter_tags=filter_tags,
     )
     if "error" in payload:
         return {"similar": [], "error": payload.get("error")}
     similar = [_normalize_entity(e) for e in _extract_entities(payload)]
-    return {"similar": similar}
+    # Same P1 entity-type guard as recommendations: a "similar places" query is
+    # only meaningful for dining when it returns restaurants (not dams/museums).
+    filtered_non_dining = 0
+    if isinstance(target_type, str) and target_type == "urn:entity:place":
+        similar, filtered_non_dining = filter_dining_places(similar)
+    return {"similar": similar, "filtered_non_dining": filtered_non_dining}
 
 
 # ===== Live feedback preference overlay =====
@@ -248,6 +419,7 @@ async def apply_taste_preferences(
     take: int = 10,
     filter_type: str | None = None,
     store: FeedbackStore | None = None,
+    location_query: str | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Run /v2/insights with the user's live 👍/👎 overlay applied.
@@ -275,11 +447,14 @@ async def apply_taste_preferences(
             signals.append(eid)
 
     etype = filter_type or resolve_entity_type("music") or "urn:entity:artist"
+    kw: dict[str, Any] = dict(extra)
+    if location_query:
+        kw["location_query"] = location_query
     payload = await client.insights(
         filter_type=etype,
         signal_entities=signals,
         take=take,
-        **extra,
+        **kw,
     )
     if "error" in payload:
         return payload
@@ -310,6 +485,8 @@ async def build_cultural_context_for_llm(
     target_domain: str | None = None,
     limit: int = 8,
     store: FeedbackStore | None = None,
+    location_query: str | None = None,
+    target_domains: list[str] | None = None,
 ) -> str:
     if not client.enabled:
         return ""
@@ -322,18 +499,55 @@ async def build_cultural_context_for_llm(
                 entity_ids.append(eid)
     if not entity_ids:
         return ""
-    rec = await get_taste_based_recommendations(
-        client, entity_ids, target_domain=target_domain, limit=limit, store=store,
-    )
+
+    rec_kwargs: dict[str, Any] = {}
+    if location_query:
+        rec_kwargs["location_query"] = location_query
+
+    # Multi-domain context: a combined "eat + wear" request must inject BOTH
+    # dining and fashion recommendations, not just the single detected domain.
+    # (Single-domain detection used to truncate the LLM context to dining alone.)
+    domains = [str(d) for d in (target_domains or []) if d]
+    if not domains and target_domain:
+        domains = [target_domain]
+
+    if not domains:
+        rec = await get_taste_based_recommendations(
+            client, entity_ids, target_domain=None, limit=limit, store=store, **rec_kwargs,
+        )
+        return _render_context_block(rec, None)
+
+    sections: list[str] = []
+    for dom in domains:
+        rec = await get_taste_based_recommendations(
+            client, entity_ids, target_domain=dom, limit=limit, store=store, **rec_kwargs,
+        )
+        block = _render_context_block(rec, None if len(domains) == 1 else dom)
+        if block:
+            sections.append(block)
+    return "\n\n".join(sections)
+
+
+def _render_context_block(rec: dict[str, Any], domain_label: str | None) -> str:
+    """Render one taste-based recommendation block for the LLM context.
+
+    Keeps the ORIGINAL single header when a single domain (or none) is requested
+    so prompt-injection tests stay byte-stable; multi-domain requests get a
+    per-domain header so the LLM can separate e.g. dining vs fashion picks.
+    """
     recommendations = rec.get("recommendations", [])
     if not recommendations:
         return ""
-    lines = ["[Qloo Cultural Intelligence - Taste-Based Recommendations]"]
+    lines = []
+    if domain_label:
+        lines.append(f"[Qloo Cultural Intelligence - Taste-Based Recommendations for {domain_label}]")
+    else:
+        lines.append("[Qloo Cultural Intelligence - Taste-Based Recommendations]")
     for i, r in enumerate(recommendations, 1):
         name = r.get("name", "Unknown")
         rtype = r.get("type", "")
-        domain_label = r.get("domain", "")
-        lines.append(f"  {i}. {name} ({rtype}) [domain={domain_label}]")
+        domain_label_r = r.get("domain", "")
+        lines.append(f"  {i}. {name} ({rtype}) [domain={domain_label_r}]")
     lines.append(
         "[End of Qloo Recommendations - Use these to ground your answer in real cultural taste data, not generic LLM knowledge]"
     )

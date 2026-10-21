@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
+
 SERVER_ROOT = Path(__file__).resolve().parent.parent
 if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
@@ -19,6 +21,19 @@ from app.services.community.matcher import (
     match_peers,
     request_connection,
 )
+
+
+@pytest.fixture
+def isolated_store(tmp_path, monkeypatch):
+    """Point the connection store at a throwaway JSON file (fresh per test) so
+    the demo DB in server/data/ is never touched by the test suite."""
+    from app.services.community import matcher as matcher_mod
+
+    target = tmp_path / "community_connections.json"
+    monkeypatch.setattr(matcher_mod, "_CONNECTIONS_FILE", target)
+    matcher_mod.reset_connections_store(target)
+    yield target
+    matcher_mod.reset_connections_store()
 
 
 def _disabled_client():
@@ -61,14 +76,15 @@ async def test_match_peers_constraints_count_toward_score():
     assert rosa["affinity"] >= sam["affinity"]
 
 
-async def test_connection_mutual_opt_in():
+async def test_connection_mutual_opt_in(isolated_store):
     """A request is PENDING until the other party explicitly accepts."""
+    from app.services.community.matcher import connection_status, reset_connections_store
+
+    reset_connections_store(isolated_store)  # fresh file, deterministic start
     r = request_connection("peer-001")
     assert r["ok"] is True
     assert r["status"] == "pending"
 
-    status_before_accept = None
-    from app.services.community.matcher import connection_status
     status_before_accept = connection_status("peer-001")["status"]
     assert status_before_accept == "pending"
 
@@ -78,7 +94,28 @@ async def test_connection_mutual_opt_in():
     assert connection_status("peer-001")["status"] == "connected"
 
 
-async def test_unknown_peer_rejected():
+async def test_connections_persist_across_restart(isolated_store):
+    """The demo's lightweight DB: a request written to the JSON file survives a
+    simulated server restart (new in-memory store re-loaded from disk)."""
+    from app.services.community import matcher as matcher_mod
+
+    matcher_mod.reset_connections_store(isolated_store)
+    assert request_connection("peer-002")["ok"] is True
+    assert isolated_store.exists(), "request_connection must persist to disk"
+
+    # Simulate restart: wipe the in-memory dict and re-run the import-time load.
+    matcher_mod._connections = {}
+    matcher_mod._load_connections()
+    assert matcher_mod.connection_status("peer-002")["status"] == "pending"
+
+    # Accepting after restart persists too.
+    assert accept_connection("peer-002")["status"] == "connected"
+    matcher_mod._connections = {}
+    matcher_mod._load_connections()
+    assert matcher_mod.connection_status("peer-002")["status"] == "connected"
+
+
+async def test_unknown_peer_rejected(isolated_store):
     r = request_connection("peer-nope")
     assert r["ok"] is False
     assert "error" in r

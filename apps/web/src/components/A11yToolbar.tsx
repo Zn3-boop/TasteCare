@@ -100,6 +100,17 @@ export function A11yToolbar() {
 
   useEffect(() => persist('tastecare.a11y.rate', String(rate)), [rate])
 
+  useEffect(() => {
+    // Chrome loads the voice catalog lazily; a warm-up here prevents the first
+    // read-aloud from silently defaulting to a mismatched voice.
+    const synth = window.speechSynthesis
+    if (!synth) return
+    synth.getVoices()
+    const warm = () => { synth.getVoices() }
+    synth.addEventListener('voiceschanged', warm)
+    return () => synth.removeEventListener('voiceschanged', warm)
+  }, [])
+
   // ---- Read-aloud helper -------------------------------------------------------
   const stopSpeaking = () => {
     window.speechSynthesis?.cancel()
@@ -121,44 +132,70 @@ export function A11yToolbar() {
   }
 
   const speak = (text: string) => {
-    if (!text.trim() || !('speechSynthesis' in window)) return
+    const synth = window.speechSynthesis
+    if (!text.trim() || !synth) return
     stopSpeaking()
     pendingRef.current = text
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'en-US'
-    u.rate = rate
-    u.onend = () => { setPlaying(false); setPaused(false); activeElRef.current?.classList.remove('a11y-sentence-active'); activeElRef.current = null }
-    u.onerror = () => { setPlaying(false); setPaused(false) }
-    // Highlight the sentence being read, sentence boundaries from the source.
-    u.onboundary = (e: SpeechSynthesisEvent) => {
-      try {
-        const idx = e.charIndex
-        const src = pendingRef.current
-        const sentence = src.slice(0, idx).split(/[.!?。！？]|(?:\s*$)/).filter(Boolean).pop() || ''
-        const re = new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        const main = document.querySelector('.app-content') || document.body
-        // Walk text nodes; a target is the smallest element CONTAINING the text.
-        const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT)
-        let node: Node | null = walker.nextNode()
-        while (node) {
-          const txt = (node.textContent || '').trim()
-          if (txt && re.test(txt)) {
-            const target = node.parentElement as HTMLElement | null
-            if (target && target !== activeElRef.current) {
-              activeElRef.current?.classList.remove('a11y-sentence-active')
-              target.classList.add('a11y-sentence-active')
-              activeElRef.current = target
+
+    const enqueue = () => {
+      const u = new SpeechSynthesisUtterance(text)
+      u.lang = 'en-US'
+      u.rate = rate
+      // Chrome lazily loads the voice catalog — pick a local en-US voice when
+      // available, otherwise the OS default is used. Either way this runs fully
+      // offline via the OS text-to-speech engine (no Google servers involved).
+      const voices = synth.getVoices()
+      const voice = voices.find(v => /^en(-|_)US$/i.test((v.lang || '').trim()))
+        || voices.find(v => (v.lang || '').toLowerCase().startsWith('en'))
+        || null
+      if (voice) u.voice = voice
+      u.onend = () => { setPlaying(false); setPaused(false); activeElRef.current?.classList.remove('a11y-sentence-active'); activeElRef.current = null }
+      // `canceled`/`interrupted` are expected when the user taps Stop or
+      // switches text — intentionally not surfaced as an error.
+      u.onerror = () => { setPlaying(false); setPaused(false) }
+      // Highlight the sentence being read, sentence boundaries from the source.
+      u.onboundary = (e: SpeechSynthesisEvent) => {
+        try {
+          const idx = e.charIndex
+          const src = pendingRef.current
+          const sentence = src.slice(0, idx).split(/[.!?。！？]|(?:\s*$)/).filter(Boolean).pop() || ''
+          const re = new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          const main = document.querySelector('.app-content') || document.body
+          // Walk text nodes; a target is the smallest element CONTAINING the text.
+          const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT)
+          let node: Node | null = walker.nextNode()
+          while (node) {
+            const txt = (node.textContent || '').trim()
+            if (txt && re.test(txt)) {
+              const target = node.parentElement as HTMLElement | null
+              if (target && target !== activeElRef.current) {
+                activeElRef.current?.classList.remove('a11y-sentence-active')
+                target.classList.add('a11y-sentence-active')
+                activeElRef.current = target
+              }
+              break
             }
-            break
+            node = walker.nextNode()
           }
-          node = walker.nextNode()
-        }
-      } catch { /* boundary highlight is best-effort */ }
+        } catch { /* boundary highlight is best-effort */ }
+      }
+      utteranceRef.current = u
+      synth.speak(u)
+      setPlaying(true)
+      setPaused(false)
     }
-    utteranceRef.current = u
-    window.speechSynthesis.speak(u)
-    setPlaying(true)
-    setPaused(false)
+
+    // Chrome cancels asynchronously — a speak() issued in the same tick as
+    // cancel() gets discarded (fires `error: canceled`, no audio). Wait for the
+    // engine to report idle before queueing, with a timeout fuse so it can never
+    // hang if the engine gets stuck at speaking=true.
+    const waitIdle = (attempt: number) => {
+      if (!synth.speaking && !synth.pending) { window.setTimeout(enqueue, 30); return }
+      if (attempt <= 0) { enqueue(); return }
+      window.setTimeout(() => waitIdle(attempt - 1), 20)
+    }
+    if (synth.speaking || synth.pending) waitIdle(100)
+    else window.setTimeout(enqueue, 30)
   }
 
   const togglePause = () => {

@@ -77,6 +77,15 @@ class TestClassifyIntent:
         msg = "My grandpa loves Frank Sinatra and Italian food but needs low-sodium meals. What would he enjoy?"
         assert classify_intent(msg) == QLOO_INTENT
 
+    def test_demand_request_books(self):
+        # 用户只要 "我想通过一些书来"（I want to get some books）——没有推荐动词，
+        # 但明确表达了文化需求，必须进入 Qloo 节点（回归：locked/mixed 下曾误判
+        # unknown → fallback_node → 报"实体无法映射"）。
+        assert classify_intent("I want to get some books") == QLOO_INTENT
+        assert classify_intent("I want to buy some books") == QLOO_INTENT
+        assert classify_intent("What should I wear for dinner?") == QLOO_INTENT
+        assert classify_intent("我想通过一些书来") == QLOO_INTENT
+
     def test_chinese_dining_signal(self):
         assert classify_intent("请推荐适合老年人的低盐晚餐") == QLOO_INTENT
 
@@ -96,6 +105,26 @@ class TestRouteIntent:
         # intent 缺失（状态合并异常）时按 raw_query 重新分类。
         assert route_intent({"raw_query": "Recommend a dinner"}) == "build_qloo_query"
         assert route_intent({"raw_query": "Hello there"}) == "fallback_node"
+
+    def test_persona_anchors_route_demand_request_to_qloo(self):
+        # 终版契约④：persona 锚点已注入（用户点击/跟随了一个 persona）时，
+        # 即使消息无推荐动词（"I want to get some books"）也进入 Qloo 节点——
+        # 种子里有 persona 锚点兜底，Qloo 必然能解析，不会误报"实体无法映射"。
+        assert route_intent({
+            "raw_query": "I want to get some books",
+            "entities": {"cultural_likes": ["Frank Sinatra", "Jazz", "Italian cuisine"]},
+        }) == "build_qloo_query"
+        assert route_intent({
+            "raw_query": "给妈妈买件衣服",
+            "entities": {"cultural_likes": ["Frank Sinatra"]},
+        }) == "build_qloo_query"
+
+    def test_pure_chitchat_with_persona_still_falls_back(self):
+        # 纯闲聊即使有 persona 锚点也不浪费 Qloo 调用。
+        assert route_intent({
+            "raw_query": "Hello there",
+            "entities": {"cultural_likes": ["Frank Sinatra"]},
+        }) == "fallback_node"
 
 
 # ===== 2. 重试回环决策表 =====
@@ -143,12 +172,20 @@ class TestInputNode:
         out = input_node(
             {
                 "raw_query": "  Recommend a dinner  ",
-                "entities": {"cultural_likes": "Jazz", "target_domain": None},
+                "entities": {"cultural_likes": "Jazz", "target_domain": None, "persona_mode": "locked"},
                 "retry_count": "3",
             }
         )
         assert out["raw_query"] == "  Recommend a dinner  "
-        assert out["entities"] == {"cultural_likes": ["Jazz"], "target_domain": ""}
+        assert out["entities"] == {
+            "cultural_likes": ["Jazz"],
+            "target_domain": "",
+            "target_domains": [],
+            "location_query": "",
+            "exclude_seeds": [],
+            "exclude_keywords": [],
+            "persona_mode": "locked",
+        }
         assert out["retry_count"] == 3
         assert out["last_error"] is None
 
@@ -161,6 +198,22 @@ class TestBuildQlooQuery:
         assert out["qloo_seed_names"] == ["Italian food", "Frank Sinatra"]
         assert out["qloo_target_domain"] == "dining"
         assert out["qloo_query"]["seed_names"] == ["Italian food", "Frank Sinatra"]
+
+    def test_locked_mode_never_merges_message_likes(self):
+        # persona_mode='locked'：种子是档案锚点 PURE read，问句里的 like 动词
+        # 绝不泄漏进 seeds（"I love the films of Christopher Nolan" 不得变成种子）。
+        out = build_qloo_query(
+            {
+                "raw_query": "I love the films of Christopher Nolan",
+                "entities": {
+                    "cultural_likes": ["Frank Sinatra", "Jazz"],
+                    "target_domain": "book",
+                    "persona_mode": "locked",
+                },
+            }
+        )
+        assert out["qloo_seed_names"] == ["Frank Sinatra", "Jazz"]
+        assert "Nolan" not in " ".join(out["qloo_seed_names"])
 
     def test_falls_back_to_raw_query_when_no_seeds(self):
         out = build_qloo_query({"raw_query": "dinner", "entities": {"cultural_likes": [], "target_domain": ""}})

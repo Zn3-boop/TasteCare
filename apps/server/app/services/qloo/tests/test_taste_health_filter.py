@@ -58,6 +58,9 @@ class TestTasteHealthFilterNode:
         by_name = {r["name"]: r for r in filtered}
         assert by_name["Maccheroni"]["health"]["passes"] is True
         assert by_name["Salt & Smoke BBQ"]["health"]["passes"] is False
+        # structured screening bucket mirrors health.passes (no recompute)
+        assert by_name["Maccheroni"]["screening"] == "pass"
+        assert by_name["Salt & Smoke BBQ"]["screening"] == "review"
         assert filtered[0]["name"] == "Maccheroni"
         assert result["filter_summary"]["active_labels"] == ["low_sodium"]
 

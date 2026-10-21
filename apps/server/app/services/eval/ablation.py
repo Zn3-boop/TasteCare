@@ -111,6 +111,7 @@ def _sort_by_health_then_fit(candidates: list[dict[str, Any]]) -> list[dict[str,
 def _to_variant_result(
     recommendations: list[dict[str, Any]],
     data_source: str,
+    grounding_note: str | None = None,
 ) -> dict[str, Any]:
     """Shape a recommendation list into the UI's AblationVariantResult contract."""
     rationale = [
@@ -131,6 +132,10 @@ def _to_variant_result(
         "top_pick": top.get("name") if top else None,
         "has_cultural_match": bool(top and top.get("name")),
         "cultural_grounding": data_source,
+        # Real Qloo pipeline output (the TasteCare "explanation" field): shows the
+        # actual anchors Qloo resolved + the health-screening summary, so judges
+        # see exactly WHY variant B's ordering differs instead of a generic label.
+        "grounding_note": grounding_note,
         "data_source": data_source,
         "rationale": rationale,
     }
@@ -156,7 +161,11 @@ async def _variant_b(client: Any, case: dict[str, Any]) -> dict[str, Any]:
             take=12,
         )
         if not result.get("error"):
-            return _to_variant_result(result.get("recommendations", []), "live")
+            return _to_variant_result(
+                result.get("recommendations", []),
+                "live",
+                grounding_note=result.get("explanation"),
+            )
     # No key / error: deterministic preview so the UI still renders honestly.
     constraints = case.get("constraints", {})
     active_labels = _build_constraint_labels(constraints)
@@ -165,15 +174,34 @@ async def _variant_b(client: Any, case: dict[str, Any]) -> dict[str, Any]:
     return _to_variant_result(sorted_pool, "preview")
 
 
+def _row_diff(va: dict[str, Any], vb: dict[str, Any]) -> dict[str, Any]:
+    """Quantify what cultural grounding changed for one prompt.
+
+    Judges see at a glance whether Qloo moved the top pick and how many of the
+    top-4 restaurants differ between the rule-based and the taste-graph lists.
+    """
+    a_top4 = [r.get("name", "") for r in (va.get("rationale") or [])[:4]]
+    b_top4 = [r.get("name", "") for r in (vb.get("rationale") or [])[:4]]
+    a_set, b_set = set(a_top4), set(b_top4)
+    return {
+        "top_changed": bool(va.get("top_pick")) and va.get("top_pick") != vb.get("top_pick"),
+        "top4_overlap": len(a_set & b_set),
+        "b_only": [n for n in b_top4 if n not in a_set],
+    }
+
+
 async def run_ablation_comparison(client: Any) -> dict[str, Any]:
     """Run the paired Variant A / Variant B comparison over all demo cases."""
     comparison: list[dict[str, Any]] = []
     for case in _DEMO_CASES:
+        va = _variant_a(case)
+        vb = await _variant_b(client, case)
         comparison.append(
             {
                 "case": case,
-                "variant_a": _variant_a(case),
-                "variant_b": await _variant_b(client, case),
+                "variant_a": va,
+                "variant_b": vb,
+                "diff": _row_diff(va, vb),
             }
         )
     return {

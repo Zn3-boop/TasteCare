@@ -8,6 +8,7 @@ from app.services.qloo.taste import (
     search_cultural_entities,
     get_taste_based_recommendations,
     get_cross_domain_discovery,
+    get_taste_similarity_score,
     build_cultural_context_for_llm,
     apply_taste_preferences,
     _normalize_entity,
@@ -92,6 +93,29 @@ def test_normalize_entity_dining_domain_types_only():
     norm = _normalize_entity(raw)
     assert norm["type"] == "urn:entity:place"
     assert norm["domain"] == "dining"
+
+
+def test_normalize_entity_preserves_tag_urns():
+    """_normalize_entity must keep tag URNs so the dining-place filter can work on
+    the shared recommendation path (previously tag_urns were dropped, which made
+    `_is_dining_place` unusable for TasteBridge / Agent dining recs)."""
+    raw = {
+        "name": "Bistro Leo",
+        "entity_id": "r1",
+        "subtype": "urn:entity:place",
+        "tags": [
+            {"id": "urn:tag:category:place:restaurant", "name": "Restaurant"},
+            {"id": "urn:tag:cuisine:qloo:italian", "name": "Italian"},
+            {"tag_id": "urn:tag:specialty_dish:place:pasta", "name": "Pasta"},
+            {"name": "NoIdTag"},
+        ],
+    }
+    norm = _normalize_entity(raw)
+    assert "urn:tag:category:place:restaurant" in norm["tag_urns"]
+    assert "urn:tag:cuisine:qloo:italian" in norm["tag_urns"]
+    assert "urn:tag:specialty_dish:place:pasta" in norm["tag_urns"]
+    assert "NoIdTag" not in norm["tag_urns"]
+    assert "Restaurant" in norm["tags"]
 
 
 @pytest.mark.asyncio
@@ -203,6 +227,131 @@ async def test_get_taste_based_recommendations_live_applies_overlay(client):
     # liked feed went through the overlay: signal list starts with the liked UUID
     sig = mock_ins.call_args.kwargs["signal_entities"]
     assert sig[0] == "e1"
+
+
+@pytest.mark.asyncio
+async def test_get_taste_based_recommendations_filters_non_dining_places(client):
+    """Dining recommendations must only surface genuine restaurants. Qloo
+    `urn:entity:place` mixes museums / dams / bowling alleys with restaurants under
+    one type — every non-dining place must be dropped and counted."""
+    mock_insights = {
+        "success": True,
+        "results": {
+            "entities": [
+                {
+                    "name": "Bistro Leo",
+                    "entity_id": "r1",
+                    "subtype": "urn:entity:place",
+                    "tags": [
+                        {"id": "urn:tag:category:place:restaurant", "name": "Restaurant"},
+                        {"id": "urn:tag:cuisine:qloo:italian", "name": "Italian"},
+                    ],
+                },
+                {
+                    "name": "Hoover Dam Museum",
+                    "entity_id": "m1",
+                    "subtype": "urn:entity:place",
+                    "tags": [
+                        {"id": "urn:tag:view:qloo:dam_view", "name": "Dam view"},
+                        {"id": "urn:tag:activity_type:qloo:culture_arts", "name": "Culture"},
+                    ],
+                },
+                {
+                    "name": "Strike City Bowling",
+                    "entity_id": "b1",
+                    "subtype": "urn:entity:place",
+                    "tags": [
+                        {"id": "urn:tag:category:place:bowling_alley", "name": "Bowling"},
+                    ],
+                },
+            ]
+        },
+    }
+    with patch.object(client, "insights", new_callable=AsyncMock, return_value=mock_insights) as mock_ins:
+        result = await get_taste_based_recommendations(client, ["seed-1"], target_domain="dining", limit=5)
+
+    names = [r["name"] for r in result["recommendations"]]
+    assert names == ["Bistro Leo"]
+    assert result["filtered_non_dining"] == 2
+    # insights got called for the place entity type
+    assert mock_ins.call_args.kwargs["filter_type"] == "urn:entity:place"
+
+
+@pytest.mark.asyncio
+async def test_get_taste_based_recommendations_music_not_filtered(client):
+    """Entity-type filtering must only apply to place/dining results — artist lists
+    are untouched."""
+    mock_insights = {
+        "success": True,
+        "results": {
+            "entities": [
+                {"name": "Radiohead", "entity_id": "e1", "subtype": "urn:entity:artist"},
+                {"name": "Muse", "entity_id": "e2", "subtype": "urn:entity:artist"},
+            ]
+        },
+    }
+    with patch.object(client, "insights", new_callable=AsyncMock, return_value=mock_insights):
+        result = await get_taste_based_recommendations(client, ["seed-1"], target_domain="music", limit=3)
+    assert [r["name"] for r in result["recommendations"]] == ["Radiohead", "Muse"]
+    assert result["filtered_non_dining"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_taste_similarity_score_filters_non_dining_places(client):
+    """Similar-to query for place must also keep only genuine restaurants and pass
+    filter_tags to Qloo (so 'similar to Sinatra' returns jazz supper clubs, not
+    dams/museums)."""
+    mock_insights = {
+        "success": True,
+        "results": {
+            "entities": [
+                {
+                    "name": "Birdland Jazz Club",
+                    "entity_id": "s1",
+                    "subtype": "urn:entity:place",
+                    "tags": [
+                        {"id": "urn:tag:category:place:restaurant", "name": "Restaurant"},
+                        {"id": "urn:tag:genre:place:restaurant:jazz_club", "name": "Jazz club"},
+                    ],
+                },
+                {
+                    "name": "Hoover Dam Visitor Center",
+                    "entity_id": "s2",
+                    "subtype": "urn:entity:place",
+                    "tags": [
+                        {"id": "urn:tag:category:place:tourist_attraction", "name": "Tourist"},
+                        {"id": "urn:tag:category:place:museum", "name": "Museum"},
+                    ],
+                },
+            ]
+        },
+    }
+    with patch.object(client, "insights", new_callable=AsyncMock, return_value=mock_insights) as mock_ins:
+        result = await get_taste_similarity_score(client, ["seed-1"], target_type="urn:entity:place", limit=3)
+
+    assert [r["name"] for r in result["similar"]] == ["Birdland Jazz Club"]
+    assert result["filtered_non_dining"] == 1
+    # filter_tags must be passed so Qloo biases toward restaurants at API level
+    assert mock_ins.call_args.kwargs["filter_tags"] == ["urn:tag:category:place:restaurant"]
+
+
+@pytest.mark.asyncio
+async def test_get_taste_similarity_score_artist_unfiltered(client):
+    """Non-place similarity queries are untouched by the dining filter."""
+    mock_insights = {
+        "success": True,
+        "results": {
+            "entities": [
+                {"name": "Miles Davis", "entity_id": "m1", "subtype": "urn:entity:artist"},
+                {"name": "Chet Baker", "entity_id": "m2", "subtype": "urn:entity:artist"},
+            ]
+        },
+    }
+    with patch.object(client, "insights", new_callable=AsyncMock, return_value=mock_insights) as mock_ins:
+        result = await get_taste_similarity_score(client, ["seed-1"], target_type="urn:entity:artist", limit=3)
+    assert [r["name"] for r in result["similar"]] == ["Miles Davis", "Chet Baker"]
+    assert result.get("filtered_non_dining", 0) == 0
+    assert mock_ins.call_args.kwargs.get("filter_tags") is None
 
 
 @pytest.mark.asyncio
