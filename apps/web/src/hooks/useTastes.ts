@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { qlooSearch, qlooRecommend, qlooCrossDomain, type QlooEntity } from '../api'
 import { useTasteMemory } from './useTasteMemory'
 import { SENIOR_PERSONA } from '../constants'
+import { splitTasteAnchors } from '../utils/tasteAnchors'
 
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
@@ -69,8 +70,7 @@ export function useTastes({ setLoading, setError }: Busy) {
     // 而不是单个 Frank Sinatra —— 味觉桥初始就显示全部口味标签
     // （Frank Sinatra, Bob Dylan, Italian cuisine, Jazz, Classic Hollywood films），
     // 与 Tastes tab 的 persona-like 输入保持一致。
-    return SENIOR_PERSONA.likes
-      .split(',').map(s => s.trim()).filter(Boolean)
+    return splitTasteAnchors(SENIOR_PERSONA.likes)
       .map((name, i) => ({ id: `seed-${i}-${name}`, name, type: 'taste' as const, domain: '' as const }))
   })
 

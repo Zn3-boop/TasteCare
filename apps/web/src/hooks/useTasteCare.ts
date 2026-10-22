@@ -3,6 +3,7 @@ import { tasteCareRecommend, type TasteCareResult } from '../api'
 import { SENIOR_PERSONA, CONSTRAINT_META } from '../constants'
 import { useSearchHistory } from './useSearchHistory'
 import { useToast } from './useToast'
+import { splitTasteAnchors } from '../utils/tasteAnchors'
 
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
@@ -59,7 +60,7 @@ export function useTasteCare({ setLoading, setError }: Busy) {
     // skip the async setState round-trip: the button resets the form AND fires
     // the search with the same values in a single synchronous pass.
     const likesSrc = override?.likes ?? tcLikes
-    const likes = likesSrc.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
+    const likes = splitTasteAnchors(likesSrc)
     if (!likes.length) { setError('Enter at least one cultural interest (artist, cuisine, film…)'); return }
     const loc = override?.location ?? tcLocation
     setLoading(true); setError(''); setTcSearched(true)

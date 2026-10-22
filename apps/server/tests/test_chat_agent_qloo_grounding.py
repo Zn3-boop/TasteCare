@@ -791,12 +791,75 @@ def test_persona_anchor_likes_splits_comma_list():
     assert anchors == ["Frank Sinatra", "Jazz", "Italian cuisine", "中国菜", "Classic Hollywood films"]
 
 
+
+def test_persona_anchor_likes_preserves_comma_inside_entity_name():
+    from app.api.chat import _persona_anchor_likes
+
+    assert _persona_anchor_likes(
+        "Nature's Point, luxury holiday homes by Together Travel, Jazz"
+    ) == ["Nature's Point, luxury holiday homes by Together Travel", "Jazz"]
+
+
 def test_persona_anchor_likes_empty_and_dedup():
     from app.api.chat import _persona_anchor_likes
 
     assert _persona_anchor_likes("") == []
     assert _persona_anchor_likes(None) == []
     assert _persona_anchor_likes("Frank Sinatra, frank sinatra, Jazz") == ["Frank Sinatra", "Jazz"]
+
+
+def test_split_anchor_text_comma_heuristic():
+    """COMMA-SPLIT HEURISTIC (must stay in sync with the web splitTasteAnchors):
+    - lowercase start, <= 2 words  -> alias variant  -> split
+    - lowercase start, > 2 words   -> descriptive   -> keep comma
+    - uppercase / CJK / digit start-> distinct entity -> split
+    """
+    from app.api.chat import _split_anchor_text
+
+    # Case1: alias-variant duplicate, 2 words lowercase -> split
+    assert _split_anchor_text("Frank Sinatra, frank sinatra") == ["Frank Sinatra", "frank sinatra"]
+    # Case3: alias-variant duplicate -> split
+    assert _split_anchor_text("Miles Davis, miles davis") == ["Miles Davis", "miles davis"]
+    # Case2: descriptive suffix, >2 words lowercase -> keep comma
+    assert _split_anchor_text("Nature's Point, luxury holiday homes by Together Travel") == [
+        "Nature's Point, luxury holiday homes by Together Travel",
+    ]
+    # Case4: descriptive suffix -> keep comma
+    assert _split_anchor_text("Central Park, nice urban park") == ["Central Park, nice urban park"]
+    # Case5: uppercase start -> split
+    assert _split_anchor_text("Radiohead, Muse") == ["Radiohead", "Muse"]
+    # Mixed multi-comma string: real corrupted blob must recover every anchor.
+    assert _split_anchor_text(
+        "Nature's Point, luxury holiday homes by Together Travel, Jazz, Italian cuisine, Frank Sinatra, frank sinatra"
+    ) == [
+        "Nature's Point, luxury holiday homes by Together Travel",
+        "Jazz",
+        "Italian cuisine",
+        "Frank Sinatra",
+        "frank sinatra",
+    ]
+    # Trailing separator (blob written by repeated "…Jazz, " appends): must not
+    # produce a "Jazz," ghost anchor.
+    assert _split_anchor_text("Jazz, ") == ["Jazz"]
+    assert _split_anchor_text("Frank Sinatra, Jazz, ") == ["Frank Sinatra", "Jazz"]
+    assert _split_anchor_text(
+        "Nature's Point, luxury holiday homes by Together Travel, Jazz, "
+    ) == ["Nature's Point, luxury holiday homes by Together Travel", "Jazz"]
+
+
+def test_persona_anchor_likes_preserves_comma_inside_entity_name():
+    from app.api.chat import _persona_anchor_likes
+
+    # The exact Qloo entity that caused the "Meet jj" bug: repeated hundreds of
+    # times in localStorage because a naive split truncated it to "Nature's Point"
+    # and dedup never matched the full name. Must come through intact, deduped.
+    assert _persona_anchor_likes(
+        "Nature's Point, luxury holiday homes by Together Travel, Jazz"
+    ) == ["Nature's Point, luxury holiday homes by Together Travel", "Jazz"]
+    assert _persona_anchor_likes(
+        "Nature's Point, luxury holiday homes by Together Travel, "
+        "Nature's Point, luxury holiday homes by Together Travel"
+    ) == ["Nature's Point, luxury holiday homes by Together Travel"]
 
 
 def test_priority_order_seeds_persona_first_never_shadowed_by_core():

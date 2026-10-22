@@ -6,6 +6,7 @@ import { QlooGroundingPanel } from '../QlooGroundingPanel'
 import { QlooStatusStrip } from '../QlooStatusStrip'
 import { AGENT_SCENARIO_PROMPTS } from '../../constants'
 import { uniqueBy } from '../../utils/list'
+import { splitTasteAnchors } from '../../utils/tasteAnchors'
 import { type MemoryEntity } from '../../hooks/useTasteMemory'
 import type { QlooEntityDetail } from '../../api'
 
@@ -49,7 +50,7 @@ type Props = {
 
 export function AgentTab(props: Props) {
   const {
-    chatMsg, setChatMsg, chatHistory, chatEndRef, doChat, onFeedback, loading, memory,
+    chatMsg, setChatMsg, chatHistory, setChatHistory, chatEndRef, doChat, onFeedback, loading, memory,
     personaName = 'Maria', personaAnchor = 'Frank Sinatra', personas = [],
     boundPersonaId = null, onBindPersona, locked = false, onToggleLocked,
   } = props
@@ -135,7 +136,7 @@ export function AgentTab(props: Props) {
                       >
                         <span>{p.name.slice(0, 1)}</span>
                         <span style={{ fontWeight: 700 }}>{p.name}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#9CA3AF', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.taste_anchors.split(',')[0]?.trim()}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#9CA3AF', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{splitTasteAnchors(p.taste_anchors)[0] || p.name}</span>
                         <span style={{ fontSize: 10, color: '#C77DFF', opacity: active ? 1 : 0 }}>●</span>
                       </button>
                     )
@@ -190,15 +191,23 @@ export function AgentTab(props: Props) {
           💡 The full Why Qloo grounding panel appears under each agent reply. Try the Sinatra prompt below — it resolves cultural anchors into visible Qloo entities.
         </p>
         <div style={{ marginTop: 10, fontSize: 11, color: '#9CA3AF', lineHeight: 1.7, background: '#111827', border: '1px solid #374151', borderRadius: 10, padding: '10px 12px' }}>
-          <div style={{ fontWeight: 700, color: '#D8B4FE', marginBottom: 4 }}>How your input is grounded</div>
+          <div style={{ fontWeight: 700, color: '#D8B4FE', marginBottom: 6 }}>How to use this Agent — live grounding status</div>
           <div>
             {boundPersonaId === 'unbound' ? (
-              <>🫧 <strong style={{ color: '#E5E7EB' }}>No persona</strong> — type your own cultural tastes in the box; ONLY what you typed is used as Qloo seeds (e.g. “Frank Sinatra, Italian food”).</>
+              <>🫧 <strong style={{ color: '#E5E7EB' }}>No persona</strong> — write your OWN habits and tastes in the box first, then ask; only what you type is used as Qloo seeds (e.g. “Frank Sinatra, Italian food”).</>
             ) : (
-              <>🔗 <strong style={{ color: '#E5E7EB' }}>Bound to {personaName}</strong> — your typed tastes are blended ON TOP of {personaName}'s saved anchors{locked ? ' (LOCKED: only the saved anchors are grounded)' : ' (mixed: message tastes are grounded too)'}.</>
+              <>🔗 <strong style={{ color: '#E5E7EB' }}>Bound to {personaName}</strong> — recommendations use {personaName}&apos;s saved habits from the profile; no need to re-type your tastes, just ask{locked ? ' (LOCKED: only the saved profile anchors are used, message tastes are ignored)' : ' (mixed: profile habits come first, new tastes in your message are used too)'}.</>
             )}
           </div>
-          <div style={{ marginTop: 4 }}>
+
+          <div style={{ fontWeight: 700, color: '#E5E7EB', marginTop: 10, marginBottom: 2 }}>Step by step</div>
+          <ol style={{ margin: '4px 0 0', paddingLeft: 18, display: 'grid', gap: 3 }}>
+            <li>Pick a person in the top <strong style={{ color: '#E5E7EB' }}>Person picker</strong> (or pin one with the 📌 dropdown above) — the agent binds to their saved profile habits automatically.</li>
+            <li>Click <strong style={{ color: '#E5E7EB' }}>🔒 Profile lock</strong> so the agent uses ONLY the saved profile habits — then just ask directly, no need to re-type your tastes.</li>
+            <li>No person bound (<strong style={{ color: '#E5E7EB' }}>🚫 No persona</strong>)? Type your own habits &amp; tastes into the box first, then ask — only those become the Qloo seeds.</li>
+            <li>You can store as many habits in a profile as you like, but each question matches at most the <strong style={{ color: '#FBBF24' }}>first 6</strong> as Qloo anchors.</li>
+          </ol>
+          <div style={{ marginTop: 6 }}>
             ✨ Every taste the agent resolves also feeds the <strong style={{ color: '#E5E7EB' }}>Taste Bridge</strong> (Discover tab) — bound or not, what you ask the agent shows up in the constellation.
           </div>
         </div>
@@ -224,6 +233,17 @@ export function AgentTab(props: Props) {
         detail={personaAnchor ? `anchored on “${personaAnchor}”` : undefined}
       />
       <div style={{ minHeight: 340, maxHeight: 440, overflow: 'auto', marginBottom: 16, padding: 18, borderRadius: 12, background: '#0b1020', border: '1px solid #1F2937' }}>
+        {chatHistory.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button
+              onClick={() => setChatHistory([])}
+              title="Clear the persisted conversation (also cleared after refresh)"
+              style={{ fontSize: 11, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+            >
+              🗑 Clear chat
+            </button>
+          </div>
+        )}
         {chatHistory.length === 0 && (
           <div style={{ color: '#6B7280', fontSize: 13, lineHeight: 1.8 }}>
             <p style={{ marginBottom: 8 }}>Try asking:</p>

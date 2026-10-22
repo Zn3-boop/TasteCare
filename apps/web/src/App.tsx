@@ -19,6 +19,7 @@ import { useChatAgent } from './hooks/useChatAgent'
 import { useCommunity } from './hooks/useCommunity'
 import { usePersona, personaConstraintKeys } from './hooks/usePersona'
 import { useToast } from './hooks/useToast'
+import { splitTasteAnchors, joinTasteAnchors } from './utils/tasteAnchors'
 import { PersonaPicker } from './components/PersonaPicker'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -170,10 +171,9 @@ function AppShell() {
   const syncBridgeFromLikes = (likesText: string) => {
     // Dedupe case-insensitively: a persona with "Jazz, jazz" must not create two
     // seeds with the same `seed-${name}` id (React 19 crashes on duplicate keys).
-    const anchors = (likesText || '')
-      .split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
-    const seen = new Set<string>()
-    const uniqueAnchors = anchors.filter(n => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+    // splitTasteAnchors keeps comma-in-name entities intact AND caps the count,
+    // so a giant legacy anchor blob can never explode the seed list.
+    const uniqueAnchors = splitTasteAnchors(likesText)
       .map(name => ({ id: `seed-${name}`, name, type: 'taste' as const, domain: '' as const }))
     tastes.setSeeds(uniqueAnchors)
     if (uniqueAnchors.length) {
@@ -264,35 +264,13 @@ function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persona.current.id])
 
-  // ---- Tastes → persona single source of truth ---------------------------
-  // Anchors gathered in Tastes / Discover (via taste seeds) are written back
-  // into the BOUND custom person's profile, so the Agent tab grounds on the
-  // SAME data the judge collected (persona-first seed priority on the backend).
-  // Maria is read-only (her anchors are the preset); 'unbound' has no profile.
-  useEffect(() => {
-    const { id } = persona.current
-    if (id === 'maria' || id === 'unbound') return
-    const profile = persona.all.find(p => p.id === id)
-    if (!profile) return
-    const seedNames = tastes.seeds
-      .map(s => s.name.trim())
-      .filter(Boolean)
-    if (!seedNames.length) return
-    const existing = (profile.taste_anchors || '').split(/[,，、\n]/).map(s => s.trim()).filter(Boolean)
-    const existingLower = new Set(existing.map(s => s.toLowerCase()))
-    const merged = [...existing]
-    let changed = false
-    for (const n of seedNames) {
-      if (existingLower.has(n.toLowerCase())) continue
-      existingLower.add(n.toLowerCase())
-      merged.push(n)
-      changed = true
-    }
-    if (changed) {
-      persona.update(id, { taste_anchors: merged.join(', ') })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persona.all, persona.current.id, tastes.seeds])
+  // ---- Tastes seeds belong to the tab, NOT to any persona profile ---------
+  // (Product decision: taste anchors gathered in Tastes / Discover are kept in
+  // the tab's own localStorage and fed to the Agent via the current question,
+  // never auto-merged into a persona profile. A profile's taste_anchors is now
+  // editable ONLY in the PersonaPicker's edit form — the single source of truth
+  // for what the Agent injects — so switching people can never cross-pollinate
+  // one person's habits into another.)
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 24px', minHeight: '100vh' }}>
@@ -329,7 +307,7 @@ function AppShell() {
           qlooEnabled={!!status?.enabled}
           bridgeAnchor={(persona.current.id !== 'maria' && !(persona.current.taste_anchors || '').trim())
             ? persona.current.name
-            : (tasteCare.tcLikes.split(/[,，\n]/)[0]?.trim() || '')}
+            : (splitTasteAnchors(tasteCare.tcLikes)[0] || '')}
           onOpenDiscover={() => goTab('discover')}
           personaName={persona.current.name}
           personaProfile={persona.current.id === 'maria' ? null : persona.current}
@@ -383,7 +361,7 @@ function AppShell() {
           animateText={persona.current.id !== 'maria'}
           reveal={true}
           personaName={persona.current.name}
-          personaHabits={persona.current.id === 'maria' ? [] : persona.current.taste_anchors.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)}
+          personaHabits={persona.current.id === 'maria' ? [] : splitTasteAnchors(persona.current.taste_anchors)}
         />
       )}
 
@@ -399,7 +377,7 @@ function AppShell() {
           loading={loading}
           memory={chat.memory}
           personaName={effectiveName}
-          personaAnchor={effectiveAnchors.split(',').map(a => a.trim()).filter(Boolean).join(' · ') || 'Frank Sinatra'}
+          personaAnchor={joinTasteAnchors(splitTasteAnchors(effectiveAnchors)) || 'Frank Sinatra'}
           personas={persona.all.map(p => ({ id: p.id, name: p.name, taste_anchors: p.taste_anchors, health_constraints: p.health_constraints, location: p.location }))}
           globalPersonaId={persona.current.id}
           boundPersonaId={agentBoundId}

@@ -8,6 +8,7 @@
 // profile via props only and treats it as the shared persona: taste anchors,
 // health constraints and default location all come from here.
 import { useEffect, useState } from 'react'
+import { normalizeTasteAnchors } from '../utils/tasteAnchors'
 
 export type ConstraintKey = 'soft_chewable' | 'low_sodium' | 'low_sugar' | 'medications'
 
@@ -50,30 +51,47 @@ export interface PersonaState {
   /** All available profiles (Maria built-in + user-created custom people). */
   all: Persona[]
   select: (id: string) => void
-  /** `taste_anchors` is OPTIONAL and typically filled from the create form's
-   *   habits field. A person with no anchors still works (the bridge centers on
-   *   their name), but filling habits means the Agent tab grounds on THIS
-   *   person's tastes — the single source of truth lives here, updated by the
-   *   create form AND by anchors gathered in Tastes/Discover. */
+  /** `taste_anchors` is OPTIONAL and typically filled from the create/edit
+   *   form's habits field. A person with no anchors still works (the bridge
+   *   centers on their name), but filling habits means the Agent tab grounds on
+   *   THIS person's tastes — edited only in the PersonaPicker (profiles are
+   *   never auto-merged from Tastes/Discover). */
   create: (p: { name: string; taste_anchors?: string; health_constraints: string; location: string }) => Persona
-  /** Merge updated fields into an existing custom profile (single source of
-   *   truth: Tastes anchors the user gathers get written back into the bound
-   *   persona so the Agent tab injects the same data). Returns true when a
-   *   profile with that id exists. Maria (built-in) is read-only. */
+  /** Merge updated fields into an existing profile — custom people AND the
+   *   built-in Maria (via a dedicated override slot beside the preset). Each
+   *   write touches ONLY that person's own data, so anchors never cross into
+   *   another profile; Maria's preset constant is never mutated. Returns true
+   *   when a profile with that id exists. */
   update: (id: string, patch: Partial<Pick<Persona, 'taste_anchors' | 'health_constraints' | 'location'>>) => boolean
 }
 
 export function usePersona(): PersonaState {
   const STORAGE_KEY = 'tastecare.persona.v1'
 
-  // Hydrate once from localStorage: the current persona id + any custom profiles.
+  // Hydrate once from localStorage: the current persona id + any custom
+  // profiles + any edits made to the built-in Maria (her override slot).
   // Best-effort — a missing/corrupt entry simply falls back to Maria (default).
   const initial = (() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (!raw) return null
-      const parsed = JSON.parse(raw) as { currentId?: string; custom?: Persona[] }
-      if (parsed && Array.isArray(parsed.custom)) return parsed
+      const parsed = JSON.parse(raw) as { currentId?: string; custom?: Persona[]; mariaOverride?: Partial<Persona> }
+      // Self-heal poisoned legacy stores: a comma-in-name entity repeated
+      // hundreds of times (the "Meet jj" bug) must be collapsed to a single
+      // deduped, capped list on hydration — before any tab renders it.
+      // Maria's override goes through the same normalization so an edited habit
+      // list can never reintroduce the blob growth it was built to prevent.
+      const healed = {
+        ...parsed,
+        custom: Array.isArray(parsed.custom) ? parsed.custom.map(p => ({ ...p, taste_anchors: normalizeTasteAnchors(p.taste_anchors) })) : [],
+        mariaOverride: parsed.mariaOverride
+          ? {
+              ...parsed.mariaOverride,
+              taste_anchors: normalizeTasteAnchors(parsed.mariaOverride.taste_anchors ?? MARIA_PERSONA.taste_anchors),
+            }
+          : undefined,
+      }
+      return healed
     } catch {
       /* ignore corrupt storage */
     }
@@ -82,17 +100,23 @@ export function usePersona(): PersonaState {
 
   const [currentId, setCurrentId] = useState<string>(initial?.currentId || MARIA_PERSONA.id)
   const [custom, setCustom] = useState<Persona[]>(initial?.custom || [])
-  const all = [MARIA_PERSONA, ...custom]
-  const current = all.find(p => p.id === currentId) || MARIA_PERSONA
+  // Maria's editable fields live in a SEPARATE override slot layered on top of
+  // the read-only preset — editing her in the picker never mutates the shared
+  // MARIA_PERSONA constant, and (unlike the old Tastes→persona merge) never
+  // touches any OTHER person's profile. Only her own tasting habits change.
+  const [mariaOverride, setMariaOverride] = useState<Partial<Persona> | undefined>(initial?.mariaOverride)
+  const mariaPersona: Persona = mariaOverride ? { ...MARIA_PERSONA, ...mariaOverride } : MARIA_PERSONA
+  const all = [mariaPersona, ...custom]
+  const current = all.find(p => p.id === currentId) || mariaPersona
 
   // Persist on every change so a refresh lands back on the same person + profiles.
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentId, custom }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentId, custom, mariaOverride }))
     } catch {
       /* quota/private-mode — demo keeps working without persistence */
     }
-  }, [currentId, custom])
+  }, [currentId, custom, mariaOverride])
 
   const select = (id: string) => {
     if (all.some(p => p.id === id)) setCurrentId(id)
@@ -102,7 +126,10 @@ export function usePersona(): PersonaState {
     const profile: Persona = {
       id: `custom-${Date.now().toString(36)}`,
       name: p.name.trim() || 'Custom Person',
-      taste_anchors: (p.taste_anchors || '').trim(),
+      // Normalize on entry: dedupe + hard cap + comma-safe protection (a Qloo
+      // entity name like "Nature's Point, luxury holiday homes by Together
+      // Travel" must not fall victim to comma-based splitting downstream).
+      taste_anchors: normalizeTasteAnchors(p.taste_anchors),
       health_constraints: p.health_constraints.trim(),
       location: p.location.trim(),
     }
@@ -112,9 +139,19 @@ export function usePersona(): PersonaState {
   }
 
   const update: PersonaState['update'] = (id, patch) => {
+    // Normalize taste_anchors on every write (dedupe + cap so the profile edit
+    // can never blob up — repeated saves settle idempotently).
+    const next = { ...patch } as typeof patch
+    if (next.taste_anchors !== undefined) next.taste_anchors = normalizeTasteAnchors(next.taste_anchors)
+    // Maria is editable through her dedicated override slot — the built-in
+    // preset stays pristine and only her own profile reflects the edit.
+    if (id === 'maria') {
+      setMariaOverride(prev => ({ ...(prev || {}), ...next }))
+      return true
+    }
     const exists = custom.some(p => p.id === id)
     if (!exists) return false
-    setCustom(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)))
+    setCustom(prev => prev.map(p => (p.id === id ? { ...p, ...next } : p)))
     return true
   }
 

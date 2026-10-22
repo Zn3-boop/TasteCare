@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatWithAgent, chatWithoutQloo, sendTasteFeedback, type QlooEntityDetail } from '../api'
 import { useToast } from './useToast'
 import { useTasteMemory } from './useTasteMemory'
@@ -18,6 +18,30 @@ export type ChatMsg = {
 
 type Busy = { setLoading: (v: boolean) => void; setError: (e: string) => void }
 
+// Chat history survives page reloads (feedback: agent Q&A vanished on refresh —
+// the transcript must persist so a judge can reload mid-demo and still see the
+// full conversation). Stored under its own key; corrupt/oversized stores fall
+// back to an empty transcript instead of crashing the tab.
+const CHAT_KEY = 'tastecare.agent.chat.v1'
+
+function loadChatHistory(): ChatMsg[] {
+  try {
+    const raw = localStorage.getItem(CHAT_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as ChatMsg[]
+    if (!Array.isArray(parsed)) return []
+    // Strictly validate shape so a legacy/corrupt entry can never render as a
+    // broken row (React 19 crashes on malformed list items).
+    return parsed
+      .filter(m => m && typeof m.id === 'string' && typeof m.role === 'string' && typeof m.text === 'string')
+      .slice(-100) // hard cap: a long demo transcript must not grow unbounded
+  } catch { return [] }
+}
+
+function persistChatHistory(next: ChatMsg[]) {
+  try { localStorage.setItem(CHAT_KEY, JSON.stringify(next.slice(-100))) } catch { /* quota/private mode */ }
+}
+
 /**
  * Agent tab's full state and actions (chat + like/dislike feedback).
  */
@@ -36,8 +60,14 @@ export function useChatAgent({ setLoading, setError, personaName, personaAnchors
   const toast = useToast()
   const memory = useTasteMemory()
   const [chatMsg, setChatMsg] = useState('')
-  const [chatHistory, setChatHistory] = useState<ChatMsg[]>([])
+  const [chatHistory, setChatHistory] = useState<ChatMsg[]>(loadChatHistory)
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // Persist every transcript change (a new exchange, 👍/👎 feedback flip, or a
+  // programmatic clear) so a page reload restores the exact conversation.
+  // Loading from storage then writing the same normalized list back is
+  // idempotent, so a plain effect dependency is safe — no first-run special case.
+  useEffect(() => { persistChatHistory(chatHistory) }, [chatHistory])
 
   const doChat = useCallback(async () => {
     if (!chatMsg.trim()) return

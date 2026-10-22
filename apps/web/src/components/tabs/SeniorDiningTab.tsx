@@ -11,6 +11,7 @@ import { uniqueBy } from '../../utils/list'
 import { QlooGroundingPanel } from '../QlooGroundingPanel'
 import { TasteBridgeHero } from '../TasteBridgeHero'
 import { QlooStatusStrip } from '../QlooStatusStrip'
+import { splitTasteAnchors } from '../../utils/tasteAnchors'
 
 type Props = {
   tcLikes: string
@@ -58,6 +59,10 @@ export function SeniorDiningTab(props: Props) {
   // items may violate constraints). The backend already returns a structured
   // `screening` field; we fall back to `health.passes` so old responses still work.
   const tcRecs = uniqueBy(tcResult?.recommendations ?? [], r => r.id || r.name || '')
+  // Persona's own anchors, split + deduped + capped once (comma-safe: a Qloo
+  // entity name may contain commas, e.g. "Nature's Point, luxury holiday homes
+  // by Together Travel" — never let it be truncated or repeated).
+  const profileAnchors = personaProfile ? splitTasteAnchors(personaProfile.taste_anchors) : []
   const screeningOf = (r: TasteCareResult['recommendations'][number]): 'pass' | 'review' =>
     r.screening ?? (r.health?.passes ? 'pass' : 'review')
   const passedRecs = tcRecs
@@ -75,7 +80,7 @@ export function SeniorDiningTab(props: Props) {
         qlooEnabled={qlooEnabled}
         onExplore={onOpenDiscover}
         personaName={personaName}
-        personaHabits={personaProfile ? (personaProfile.taste_anchors || '').split(/[,，\n]/).map(s => s.trim()).filter(Boolean) : []}
+        personaHabits={profileAnchors}
         animateText={animateTextGraph}
         reveal={revealGraph}
       />
@@ -132,14 +137,16 @@ export function SeniorDiningTab(props: Props) {
       </div>
       <div style={{ ...sx.card, marginBottom: 20, border: '1px solid #FF6B3533', background: 'linear-gradient(135deg, #FF6B3510, #111827)' }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' as const }}>
-          <div style={{ fontSize: 48, lineHeight: 1 }}>👩</div>
+          <div style={{ width: 56, height: 56, borderRadius: 50, flexShrink: 0, background: 'linear-gradient(135deg, #FF6B35, #C77DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#fff', fontWeight: 800 }}>
+            {personaName.slice(0, 1) || '👤'}
+          </div>
           <div style={{ flex: 1, minWidth: 280 }}>
             <h2 style={{ fontSize: 20, fontWeight: 700, color: '#FF6B35', marginBottom: 6 }}>Meet {personaName}</h2>
             {personaProfile ? (
               <>
                 <p style={{ fontSize: 14, color: '#D1D5DB', lineHeight: 1.7, marginBottom: 8 }}>
                   Lives in <strong style={{ color: '#FF6B35' }}>{personaProfile.location || '—'}</strong> · Loves{' '}
-                  <strong style={{ color: '#FF6B35' }}>{personaProfile.taste_anchors}</strong>.
+                  <strong style={{ color: '#FF6B35' }}>{profileAnchors.slice(0, 12).join(', ')}{profileAnchors.length > 12 ? ' …' : ''}</strong>.
                 </p>
                 <p style={{ fontSize: 13, color: '#9CA3AF', lineHeight: 1.6 }}>
                   Health needs: <strong style={{ color: '#F5A623' }}>{personaProfile.health_constraints || 'none specified'}</strong>. Qloo finds what they&apos;d actually love — then we filter for their health.
@@ -220,12 +227,12 @@ export function SeniorDiningTab(props: Props) {
               </span>
             </div>
             <QlooGroundingPanel
-              tasteEntities={tcLikes.split(/[,，\n]/).map(s => s.trim()).filter(Boolean).slice(0, 8)}
+              tasteEntities={splitTasteAnchors(tcLikes).slice(0, 8)}
               tasteDataSource={tcResult.data_source === 'live' ? 'live' : 'preview'}
               tasteLocation={tcResult.data_source === 'live' ? (tcResult.location || tcLocation) : undefined}
               qlooContext={tcResult.data_source === 'live'
                 ? {
-                    anchors: tcLikes.split(/[,，\n]/).map(s => s.trim()).filter(Boolean),
+                    anchors: splitTasteAnchors(tcLikes),
                     location: tcResult.location || tcLocation,
                     screened_for: activeConstraintLabels,
                     ordering: 'Scores are Qloo popularity; results ordered by Qloo taste affinity.',
@@ -245,7 +252,7 @@ export function SeniorDiningTab(props: Props) {
                 <strong style={{ color: '#FF6B35' }}>#1 pick for {personaName}</strong> — {tcResult.recommendations[0]?.name}.
               </p>
               <p style={{ fontSize: 12, color: '#9CA3AF', lineHeight: 1.6, marginTop: 6 }}>
-                {tcLikes.split(/[,，\n]/).map(s => s.trim()).filter(Boolean).slice(0, 3).join(', ')} anchored a Qloo taste-graph search{tcLocation ? ` near ${tcLocation}` : ''}, then every result was screened for{activeConstraintLabels ? ` ${activeConstraintLabels}` : ' your active health constraints'}. Scores are Qloo popularity; results are ordered by Qloo taste affinity.
+                {splitTasteAnchors(tcLikes).slice(0, 3).join(', ')} anchored a Qloo taste-graph search{tcLocation ? ` near ${tcLocation}` : ''}, then every result was screened for{activeConstraintLabels ? ` ${activeConstraintLabels}` : ' your active health constraints'}. Scores are Qloo popularity; results are ordered by Qloo taste affinity.
               </p>
             </div>
           )}

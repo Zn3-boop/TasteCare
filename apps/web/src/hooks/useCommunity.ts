@@ -4,6 +4,7 @@ import {
   type CommunityMatchResponse,
 } from '../api'
 import { useToast } from './useToast'
+import { splitTasteAnchors } from '../utils/tasteAnchors'
 
 /**
  * Community tab state — Qloo-powered peer matching with mutual opt-in.
@@ -39,7 +40,7 @@ export function useCommunity() {
   }, [])
 
   const doMatch = useCallback(async () => {
-    const likes = likesText.split(',').map((s: string) => s.trim()).filter(Boolean)
+    const likes = splitTasteAnchors(likesText)
     if (!likes.length) {
       toast('Enter at least one cultural anchor', 'error')
       return

@@ -137,22 +137,81 @@ def _extract_cultural_likes(message: str, max_likes: int = 4) -> list[str]:
     return likes
 
 
+def _clean_anchor(raw: str) -> str:
+    """Trim whitespace and stray trailing separators (a blob often ends mid-list,
+    e.g. "…Jazz, " — mirrors the web `finalize` inside splitCommaKeepingNames)."""
+    return raw.strip(" \t\n\r\x0b\x0c\u3000，,")
+
+
+def _split_anchor_text(text: str) -> list[str]:
+    """Split comma-separated anchors while keeping commas INSIDE a name.
+
+    Real Qloo entity names can contain commas (e.g. "Nature's Point, luxury
+    holiday homes by Together Travel"). A naive comma split would truncate that
+    name to "Nature's Point", which then never matches the full entity name in
+    dedup passes — so a write-back loop appends one more copy on every run
+    (unbounded localStorage growth on the web side + a repeated anchor blurb in
+    the prompt). We therefore treat a comma as a separator ONLY when the next
+    non-space token starts a NEW entity (uppercase letter, CJK, or digit) or is
+    a SHORT lowercase alias variant (<= 2 words, e.g. "frank sinatra" as a
+    capitalized duplicate); a LONG lowercase phrase ("luxury holiday homes by
+    Together Travel") is a descriptive subtitle that belongs to the current
+    name and keeps its comma. Mirrors the web `splitTasteAnchors` — keep the
+    heuristic in sync.
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch in (",", "，"):
+            m = re.match(r"\s*(\S)", text[i + 1:])
+            nxt = m.group(1) if m else ""
+            split = False
+            if nxt:
+                if nxt.isascii() and nxt.isalpha():
+                    if nxt.isupper():
+                        split = True
+                    else:
+                        # Lowercase start: count the following ASCII word run.
+                        wm = re.match(r"\s*[a-zA-Z][\w'\u2010-]*(?:\s+[a-zA-Z][\w'\u2010-]*)*", text[i + 1:])
+                        if wm:
+                            words = len(wm.group(0).strip().split())
+                            split = words <= 2
+                elif "\u4e00" <= nxt <= "\u9fff" or nxt.isdigit():
+                    split = True
+            if split and _clean_anchor("".join(buf)):
+                out.append(_clean_anchor("".join(buf)))
+                buf = []
+                i += 1
+                continue
+            buf.append(ch)
+        else:
+            buf.append(ch)
+        i += 1
+    if _clean_anchor("".join(buf)):
+        out.append(_clean_anchor("".join(buf)))
+    return out
+
+
 def _persona_anchor_likes(persona_anchors: str | None, max_likes: int = 6) -> list[str]:
     """Split the active persona's comma-separated taste anchors into clean seeds.
 
     The web persona profile stores anchors as free text ("Frank Sinatra, Jazz,
     Italian cuisine"), so this parser is deliberately lightweight: split on
-    commas, drop empties, dedupe case-insensitively. These anchors are merged
-    AHEAD of message-derived likes so the agent is genuinely bound to the
-    current persona (the "🔗 Bound to Maria" badge) instead of only grounding on
-    whatever phrase the current message happens to contain.
+    commas (comma-aware — see `_split_anchor_text`), drop empties, dedupe
+    case-insensitively. These anchors are merged AHEAD of message-derived likes
+    so the agent is genuinely bound to the current persona (the "🔗 Bound to
+    Maria" badge) instead of only grounding on whatever phrase the current
+    message happens to contain.
     """
     if not persona_anchors:
         return []
     seen: set[str] = set()
     out: list[str] = []
-    for raw in re.split(r"[，,、;；]+", persona_anchors):
-        name = raw.strip()
+    for raw in _split_anchor_text(persona_anchors):
+        name = raw.strip(" \t._·-–—':;\"，。")
         if not name:
             continue
         key = name.lower()
