@@ -50,10 +50,17 @@ export interface PersonaState {
   /** All available profiles (Maria built-in + user-created custom people). */
   all: Persona[]
   select: (id: string) => void
-  /** `taste_anchors` is now OPTIONAL — the create form no longer collects a
-   *   habits field (product decision). A new person starts anchorless; the
-   *   Taste Bridge centers on their name until they gather explicit tastes. */
+  /** `taste_anchors` is OPTIONAL and typically filled from the create form's
+   *   habits field. A person with no anchors still works (the bridge centers on
+   *   their name), but filling habits means the Agent tab grounds on THIS
+   *   person's tastes — the single source of truth lives here, updated by the
+   *   create form AND by anchors gathered in Tastes/Discover. */
   create: (p: { name: string; taste_anchors?: string; health_constraints: string; location: string }) => Persona
+  /** Merge updated fields into an existing custom profile (single source of
+   *   truth: Tastes anchors the user gathers get written back into the bound
+   *   persona so the Agent tab injects the same data). Returns true when a
+   *   profile with that id exists. Maria (built-in) is read-only. */
+  update: (id: string, patch: Partial<Pick<Persona, 'taste_anchors' | 'health_constraints' | 'location'>>) => boolean
 }
 
 export function usePersona(): PersonaState {
@@ -104,5 +111,12 @@ export function usePersona(): PersonaState {
     return profile
   }
 
-  return { current, all, select, create }
+  const update: PersonaState['update'] = (id, patch) => {
+    const exists = custom.some(p => p.id === id)
+    if (!exists) return false
+    setCustom(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)))
+    return true
+  }
+
+  return { current, all, select, create, update }
 }

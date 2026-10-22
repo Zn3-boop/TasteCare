@@ -166,17 +166,22 @@ def _persona_anchor_likes(persona_anchors: str | None, max_likes: int = 6) -> li
 
 
 def _priority_order_seeds(
+    persona_likes: list[str],
     message_likes: list[str],
     core_anchors: list[str],
-    historical_likes: list[str],
     exclude_seeds: tuple[str, ...] | None = None,
     exclude_keywords: tuple[str, ...] | None = None,
 ) -> list[str]:
-    """Assemble taste seeds by the Qloo structured template's priority rule.
+    """Assemble taste seeds by the persona-first priority rule.
 
-    Order: current-query seeds > fixed core anchors > stored historical seeds.
-    Anything matching the explicit exclude list (exact seed or class keyword)
-    is dropped, so stale off-theme anchors can never re-enter the signal list.
+    Priority: bound-persona anchors (+ accumulated 👍 feedback) > current-query
+    likes; the fixed core fallback anchors (Chicago blues / MCM design / craft
+    jazz vinyl) are used ONLY when there is nothing else — an unbound session
+    with no message likes still gets SOME grounding. A bound persona's own
+    tastes are the ONLY legitimate first-class seeds: the generic core trio
+    must never appear alongside a bound persona's profile (fix 单 §五
+    "绑定人物时绝不允许那三条出现"). Anything matching the explicit exclude
+    list (exact seed or class keyword) is dropped.
     """
     if exclude_seeds is None:
         exclude_seeds = _QLOO_EXCLUDE_SEEDS
@@ -184,7 +189,7 @@ def _priority_order_seeds(
         exclude_keywords = _QLOO_EXCLUDE_KEYWORDS
     out: list[str] = []
     seen: set[str] = set()
-    for like in [*message_likes, *core_anchors, *historical_likes]:
+    for like in [*persona_likes, *message_likes]:
         name = (like or "").strip()
         if not name or name.lower() in seen:
             continue
@@ -192,6 +197,18 @@ def _priority_order_seeds(
             continue
         seen.add(name.lower())
         out.append(name)
+    # Fixed generic core anchors: absolute last resort only when nothing else
+    # exists (unbound session + no message likes). With a bound persona (or any
+    # message likes) they are entirely omitted — never shadow the persona.
+    if not out:
+        for like in core_anchors:
+            name = (like or "").strip()
+            if not name or name.lower() in seen:
+                continue
+            if _seed_is_excluded(name, exclude_seeds, exclude_keywords):
+                continue
+            seen.add(name.lower())
+            out.append(name)
     return out
 
 
@@ -1085,14 +1102,17 @@ async def chat_with_agent(payload: ChatRequest):
         # the fixed core anchors are dropped too, so the seed list is a PURE read
         # of the persona's saved anchors + accumulated 👍 feedback — no invented
         # entities, ever.
-        # Qloo structured-template priority rule: current-query seeds > fixed
-        # core anchors > stored historical seeds, with the explicit exclude list
-        # applied so stale off-theme anchors never reach the signal list. The
-        # variable name stays `deduped_likes` for the LLM-failure fallback below.
+        # Persona-first priority rule (终版契约④): the bound persona's own taste
+        # anchors (+ accumulated feedback) are FIRST-CLASS seeds and always lead;
+        # message-derived likes only supplement; the fixed core anchors (Chicago
+        # blues / MCM design / craft jazz vinyl) are a LAST-RESORT fallback that
+        # must never shadow a bound persona's profile — so "which place should I
+        # travel" never answers with the generic three. The variable name stays
+        # `deduped_likes` for the LLM-failure fallback below.
         deduped_likes = _priority_order_seeds(
+            [*persona_likes, *profile_likes],
             message_likes,
             [] if locked else list(_QLOO_CORE_ANCHORS),
-            [*persona_likes, *profile_likes],
             _QLOO_EXCLUDE_SEEDS,
             _QLOO_EXCLUDE_KEYWORDS,
         )

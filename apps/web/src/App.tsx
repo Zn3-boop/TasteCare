@@ -264,6 +264,36 @@ function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persona.current.id])
 
+  // ---- Tastes → persona single source of truth ---------------------------
+  // Anchors gathered in Tastes / Discover (via taste seeds) are written back
+  // into the BOUND custom person's profile, so the Agent tab grounds on the
+  // SAME data the judge collected (persona-first seed priority on the backend).
+  // Maria is read-only (her anchors are the preset); 'unbound' has no profile.
+  useEffect(() => {
+    const { id } = persona.current
+    if (id === 'maria' || id === 'unbound') return
+    const profile = persona.all.find(p => p.id === id)
+    if (!profile) return
+    const seedNames = tastes.seeds
+      .map(s => s.name.trim())
+      .filter(Boolean)
+    if (!seedNames.length) return
+    const existing = (profile.taste_anchors || '').split(/[,，、\n]/).map(s => s.trim()).filter(Boolean)
+    const existingLower = new Set(existing.map(s => s.toLowerCase()))
+    const merged = [...existing]
+    let changed = false
+    for (const n of seedNames) {
+      if (existingLower.has(n.toLowerCase())) continue
+      existingLower.add(n.toLowerCase())
+      merged.push(n)
+      changed = true
+    }
+    if (changed) {
+      persona.update(id, { taste_anchors: merged.join(', ') })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persona.all, persona.current.id, tastes.seeds])
+
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 24px', minHeight: '100vh' }}>
       <ErrorBoundary>

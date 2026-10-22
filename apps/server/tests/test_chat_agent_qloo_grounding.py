@@ -731,6 +731,43 @@ def test_persona_anchor_likes_empty_and_dedup():
     assert _persona_anchor_likes("Frank Sinatra, frank sinatra, Jazz") == ["Frank Sinatra", "Jazz"]
 
 
+def test_priority_order_seeds_persona_first_never_shadowed_by_core():
+    """终版契约④ persona-first seed priority.
+
+    A bound persona's tastes must LEAD the seed list; the fixed core fallback
+    anchors (Chicago blues / MCM design / craft jazz vinyl) are a LAST resort
+    and must never shadow a bound persona's profile — even when the message
+    itself carries no cultural like (\"which place do you advise me to travel\").
+    Regression: previously the call site passed persona likes as third-position
+    \"historical\" seeds, so the fixed core anchors always won.
+    """
+    from app.api.chat import _priority_order_seeds
+
+    persona = ["Haruki Murakami"]
+    message: list[str] = []
+    core = ["classic Chicago blues", "mid-century modern design", "craft jazz vinyl records"]
+
+    seeds = _priority_order_seeds(persona, message, core)
+    assert seeds[0] == "Haruki Murakami"
+    # Core trio is isolated whenever a persona anchor exists.
+    assert seeds == ["Haruki Murakami"], seeds
+
+    # Mixed mode: message likes supplement AFTER the persona; the fixed core
+    # trio is isolated whenever ANY persona/message seed exists.
+    seeds2 = _priority_order_seeds(["Jazz"], ["Christopher Nolan"], core)
+    assert seeds2.index("Christopher Nolan") > seeds2.index("Jazz")
+    assert not any(c in seeds2 for c in core), seeds2
+
+
+def test_priority_order_seeds_no_persona_core_still_fallback():
+    """With NO bound persona anchors, the fixed core anchors remain a valid
+    fallback so an unbound session still produces SOME grounding seeds."""
+    from app.api.chat import _priority_order_seeds
+
+    seeds = _priority_order_seeds([], [], ["classic Chicago blues", "mid-century modern design"])
+    assert seeds == ["classic Chicago blues", "mid-century modern design"]
+
+
 def test_format_qloo_only_reply_separates_seeds_from_recommendations():
     from app.api.chat import _format_qloo_only_reply
 
@@ -909,7 +946,70 @@ def test_chat_agent_mixed_mode_still_merges_message_likes_into_seeds():
     assert "Frank Sinatra" in seeds
     # Free exploration still pulls message-derived likes into the seed list.
     assert any("Nolan" in s for s in seeds), seeds
-    assert any("chicago blues" in s.lower() for s in seeds), seeds
+    # A bound persona (Maria) isolates the fixed generic trio: Chicago blues /
+    # MCM design / craft jazz vinyl never appear once the persona has anchors.
+    from app.api.chat import _QLOO_CORE_ANCHORS
+
+    assert not any(generic in " ".join(seeds).lower() for generic in _QLOO_CORE_ANCHORS), seeds
+
+
+def test_chat_agent_bound_persona_anchor_leads_domain_only_question():
+    """Acceptance (fix 单): bind a persona whose anchor is a unique entity,
+    ask a domain-only question with NO cultural like — the Qloo seed list must
+    LEAD with that entity and must NOT be the fixed generic three. Regression:
+    the bound persona's anchors were passed as third-priority 'historical'
+    seeds, so "i wanna buy some books" surfaced Chicago blues / MCM design /
+    craft jazz vinyl regardless of who was bound."""
+    from app.api.chat import _QLOO_CORE_ANCHORS
+    from unittest.mock import AsyncMock, patch
+
+    fake_graph = AsyncMock()
+    captured = {}
+
+    async def fake_ainvoke(state):
+        captured["ainvoke_state"] = state
+        merged = dict(state)
+        merged.update(
+            {
+                "qloo_enabled": True,
+                "qloo_seed_names": state["entities"]["cultural_likes"],
+                "qloo_resolved_names": [],
+                "qloo_taste_context": "[Qloo] persona-first",
+                "taste_entities": [],
+                "last_error": None,
+            }
+        )
+        return merged
+
+    fake_graph.ainvoke = fake_ainvoke
+
+    async def fake_chat(*, system_prompt: str, user_prompt: str, **kw) -> str:
+        captured["user"] = user_prompt
+        return "Books picks for you."
+
+    fake_provider = _FakeProvider(captured, fake_chat, enabled=True)
+
+    with patch("app.services.graph.graph.build_qloo_agent_graph", return_value=fake_graph), \
+         patch("app.services.llm.provider.provider", fake_provider):
+        resp = client.post(
+            "/api/v1/chat/agent",
+            json={
+                "message": "i wanna buy some books",
+                "persona_name": "Kenji",
+                "persona_anchors": "Haruki Murakami",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    seeds = captured["ainvoke_state"]["entities"]["cultural_likes"]
+    assert seeds, seeds
+    # The bound persona's unique anchor leads; the fixed generic three never
+    # shadow it for a bound persona.
+    assert seeds[0] == "Haruki Murakami", seeds
+    for generic in _QLOO_CORE_ANCHORS:
+        assert generic not in " ".join(seeds).lower(), (generic, seeds)
+    # Domain intent for a books request is carried in the state.
+    assert captured["ainvoke_state"]["entities"]["target_domain"] in ("book", "books")
 
 
 def test_chat_agent_locked_mode_qloo_only_skips_message_likes():

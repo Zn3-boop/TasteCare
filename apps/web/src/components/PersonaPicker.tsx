@@ -21,12 +21,14 @@ export function PersonaPicker({ state }: { state: ReturnType<typeof usePersona> 
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
 
-  // Create-new form fields. NOTE: the free-text "习惯爱好 / anchors" input was
-  // removed — a person no longer types anchors at creation time. The Taste
-  // Bridge anchors a new (anchorless) person on their NAME instead (see App),
-  // so free-text hobbies that could never resolve to Qloo entities no longer
-  // produce an empty bridge.
+  // Create-new form fields. The free-text "习惯爱好 / taste anchors" input is
+  // REQUIRED for the Agent tab to ground on THIS person (single source of truth
+  // with Tastes/Discover). A person created without anchors still works — the
+  // Taste Bridge centers on their NAME (see App) — but asking the agent a
+  // domain-only question ("which place do you advise me to travel") would fall
+  // back to the fixed core anchors instead of this person's tastes.
   const [name, setName] = useState('')
+  const [anchors, setAnchors] = useState('')
   const [constraints, setConstraints] = useState<ConstraintKey[]>([])
   const [location, setLocation] = useState('')
 
@@ -37,15 +39,16 @@ export function PersonaPicker({ state }: { state: ReturnType<typeof usePersona> 
   const submit = () => {
     create({
       name,
-      // 新建人物不再填写锚点：taste_anchors 留空，App 侧会用人物名作为味觉桥
-      // 中心锚点（见 App.tsx persona-watch effect 的 anchorsText 兜底）。
-      taste_anchors: '',
+      // The create form now collects habits again: these anchors ride the
+      // persona profile into /chat/agent so the Agent tab grounds on the bound
+      // person's own tastes (persona-first seed priority on the backend).
+      taste_anchors: anchors.trim(),
       health_constraints: constraints.join(', '),
       location,
     })
     setCreating(false)
     setOpen(false)
-    setName(''); setConstraints([]); setLocation('')
+    setName(''); setAnchors(''); setConstraints([]); setLocation('')
   }
 return (
     <div style={{ ...sx.card, marginBottom: 20, padding: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', border: '1px solid #C77DFF33' }}>
@@ -98,6 +101,12 @@ return (
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, borderTop: '1px solid #1F2937', paddingTop: 10 }}>
                 <input placeholder="名字 · Name" value={name} onChange={e => setName(e.target.value)} style={sx.input} />
+                <input
+                  placeholder="习惯爱好 · Taste anchors (e.g. Frank Sinatra, Jazz, Italian cuisine)"
+                  value={anchors}
+                  onChange={e => setAnchors(e.target.value)}
+                  style={sx.input}
+                />
                 <input placeholder="所在城市 · Location (e.g. Chicago)" value={location} onChange={e => setLocation(e.target.value)} style={sx.input} />
                 <div>
                   <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 700, marginBottom: 4 }}>健康约束 · Health constraints</div>
