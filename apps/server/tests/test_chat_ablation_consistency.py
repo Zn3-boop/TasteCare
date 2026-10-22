@@ -126,9 +126,13 @@ def test_ablation_pair_single_variable_consistency():
 
     qloo_call, baseline_call = logs
 
-    # 1) Identical system prompt across both branches.
-    assert baseline_call["system"] == CULTURAL_RECOMMENDATION_SYSTEM_PROMPT
-    assert qloo_call["system"] == CULTURAL_RECOMMENDATION_SYSTEM_PROMPT
+    # 1) Identical system prompt across both branches: the base template PLUS
+    # the persona-binding state annotation appended equally to both arms (this
+    # request sends no persona, so persona_bound: False — single-variable
+    # consistency is preserved because both calls receive the identical string).
+    assert baseline_call["system"] == qloo_call["system"]
+    assert baseline_call["system"].startswith(CULTURAL_RECOMMENDATION_SYSTEM_PROMPT)
+    assert "[Persona Binding State] persona_bound: False" in baseline_call["system"]
 
     # 2) Identical model-selection parameters — no hidden drift.
     for key in ("temperature", "task_type"):

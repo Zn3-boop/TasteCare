@@ -418,6 +418,74 @@ def test_chat_agent_uses_cultural_system_prompt():
     assert "Maria" in captured["user"]
 
 
+
+def test_chat_agent_persona_binding_note_bound_persona_no_ask():
+    """When a persona is bound, the system prompt annotation tells the LLM the
+    persona's saved taste anchors are the ONLY taste source and it must NOT
+    re-ask the user for their own habits/tastes — the profile already captured
+    them at creation time.
+    """
+    captured = {}
+
+    async def fake_chat(*, system_prompt: str, user_prompt: str, **kw) -> str:
+        captured["system"] = system_prompt
+        return "Picks grounded in Maria's profile."
+
+    fake_provider = _FakeProvider(captured, fake_chat, enabled=True)
+    with patch("app.services.llm.provider.provider", fake_provider):
+        resp = client.post(
+            "/api/v1/chat/agent",
+            json={
+                "message": "i wanna buy some books",
+                "persona_name": "Maria",
+                "persona_anchors": "Frank Sinatra, Italian cuisine, Jazz",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    sys_p = captured["system"]
+    assert "[Persona Binding State] persona_bound: True" in sys_p
+    assert "Maria" in sys_p
+    assert "Frank Sinatra, Italian cuisine, Jazz" in sys_p
+    # The persona is the ONLY taste source: the agent must answer directly from
+    # the saved anchors and never demand the user restate their own tastes.
+    assert "Do NOT ask the user to state their own habits or tastes again" in sys_p
+    assert "persona_bound: False" not in sys_p
+
+
+def test_chat_agent_persona_binding_note_unbound_asks_for_tastes_and_need():
+    """With NO bound persona the annotation requires the agent to FIRST ask the
+    user for both their 习惯爱好 (likes/habits) AND 需求 (need) whenever the
+    request lacks both — never invent tastes on the user's behalf."""
+    captured = {}
+
+    async def fake_chat(*, system_prompt: str, user_prompt: str, **kw) -> str:
+        captured["system"] = system_prompt
+        return "Tell me your likes and what you need."
+
+    fake_provider = _FakeProvider(captured, fake_chat, enabled=True)
+    with patch("app.services.llm.provider.provider", fake_provider):
+        resp = client.post(
+            "/api/v1/chat/agent",
+            json={
+                "message": "which place do you advise me to travel",
+                "persona_name": None,
+                "persona_anchors": "",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    sys_p = captured["system"]
+    assert "[Persona Binding State] persona_bound: False" in sys_p
+    assert "Injected tastes: none" in sys_p
+    # Unbound → the agent must request BOTH likes/habits AND need up front.
+    assert "习惯爱好" in sys_p and "需求" in sys_p
+    assert "FIRST ask one short question requesting both" in sys_p
+    assert "Never invent tastes on the user's behalf" in sys_p
+    assert "persona_bound: True" not in sys_p
+
+
+
 # ===== /chat/agent live grounding runs THROUGH the compiled LangGraph StateGraph =====
 
 def test_chat_agent_live_grounding_runs_langgraph_stategraph_ainvoke():

@@ -165,6 +165,51 @@ def _persona_anchor_likes(persona_anchors: str | None, max_likes: int = 6) -> li
     return out
 
 
+def _persona_binding_note(
+    bound: bool,
+    persona_name: str | None,
+    persona_anchors: str | None,
+) -> str:
+    """System-level annotation describing the current persona-binding state.
+
+    Appended to the system prompt by /chat/agent so the LLM's OUTPUT contract
+    matches what was actually grounded:
+      • Bound person  — the ONLY taste source is the persona's saved anchors
+        (captured when the profile was first created, i.e. the 习惯爱好 field).
+        Recommend from these anchors; never demand the user restate their own
+        habits or tastes.
+      • No bound person — there are NO saved anchors. If the request already
+        lacks both concrete likes and a concrete need, the agent must ASK the
+        user for their 习惯爱好 (likes/habits) and 需求 (need) before picking
+        anything — never invent tastes on the user's behalf.
+    """
+    name = (persona_name or "").strip()
+    anchors = _persona_anchor_likes(persona_anchors)
+    if bound:
+        header = (
+            "\n[Persona Binding State] persona_bound: True\n"
+            f"Persona: {name or '(unnamed persona profile)'}\n"
+            f"Injected tastes (from the persona's saved profile ONLY): "
+            f"{', '.join(anchors) if anchors else '(none saved yet)'}\n\n"
+            "Output requirement: the user is represented by this bound persona. "
+            "Ground EVERY recommendation ONLY on the persona's saved taste anchors "
+            "above (its 习惯爱好 / taste profile, set when the person was created). "
+            "Do NOT ask the user to state their own habits or tastes again — "
+            "answer their current request directly from these anchors."
+        )
+    else:
+        header = (
+            "\n[Persona Binding State] persona_bound: False\n"
+            "Injected tastes: none (no persona profile is bound to this session).\n\n"
+            "Output requirement: there are no saved taste anchors. If the user's "
+            "request does not already state BOTH their 习惯爱好 (cultural likes / "
+            "habits) AND a concrete 需求 (what they need, e.g. a music/film/book/"
+            "meal/destination ask), FIRST ask one short question requesting both. "
+            "Never invent tastes on the user's behalf."
+        )
+    return header
+
+
 def _priority_order_seeds(
     persona_likes: list[str],
     message_likes: list[str],
@@ -898,6 +943,17 @@ async def chat_with_agent(payload: ChatRequest):
         user_prompt += f"\n\n[System Context]\n{payload.system_context}"
 
     system_prompt = CULTURAL_RECOMMENDATION_SYSTEM_PROMPT
+
+    # Persona-binding state annotation written into the system prompt so the
+    # agent's OUTPUT contract matches the grounding state: a bound persona is
+    # the ONLY taste source (its 习惯爱好 captured at profile creation — never
+    # re-ask the user for their own); with no bound persona the agent asks the
+    # user for their 习惯爱好 (likes/habits) AND 需求 (need) before recommending.
+    system_prompt += _persona_binding_note(
+        bound=bool((payload.persona_name or "").strip() or (payload.persona_anchors or "").strip()),
+        persona_name=payload.persona_name,
+        persona_anchors=payload.persona_anchors,
+    )
 
     # ---- Qloo-only mode (no LLM key): the agent still answers with real
     # cultural data from the Qloo taste graph, never a hard error. ----
