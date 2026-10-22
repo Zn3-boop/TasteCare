@@ -87,7 +87,7 @@ return (
           {current.name.slice(0, 1)}
         </div>
         <div>
-          <div style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: '#6B7280', fontWeight: 700 }}>当前人物 · Current Person</div>
+          <div style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: '#6B7280', fontWeight: 700 }}>Current Person</div>
           <div style={{ fontSize: 16, fontWeight: 800, color: '#E5E7EB' }}>
             {current.name}
             <span style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginLeft: 8 }}>📍 {current.location || 'no location set'}</span>
@@ -151,21 +151,21 @@ return (
                   {editingId ? `✏️ Editing "${name}" — habits below are what the Agent injects` : '➕ New person'}
                 </div>
                 <input
-                  placeholder="名字 · Name"
+                  placeholder="Name"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   disabled={!!editingId}
                   style={{ ...sx.input, opacity: editingId ? 0.6 : 1 }}
                 />
                 <input
-                  placeholder="习惯爱好 · Taste anchors (e.g. Frank Sinatra, Jazz, Italian cuisine)"
+                  placeholder="Taste anchors (e.g. Frank Sinatra, Jazz, Italian cuisine)"
                   value={anchors}
                   onChange={e => setAnchors(e.target.value)}
                   style={sx.input}
                 />
-                <input placeholder="所在城市 · Location (e.g. Chicago)" value={location} onChange={e => setLocation(e.target.value)} style={sx.input} />
+                <input placeholder="Location (e.g. Chicago)" value={location} onChange={e => setLocation(e.target.value)} style={sx.input} />
                 <div>
-                  <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 700, marginBottom: 4 }}>健康约束 · Health constraints</div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 700, marginBottom: 4 }}>Health constraints</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                     {CONSTRAINT_META.map(c => {
                       const active = constraints.includes(c.key as ConstraintKey)

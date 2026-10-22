@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     return (
       <div style={{ ...sx.card, maxWidth: 520, margin: '10vh auto', textAlign: 'center', padding: 40 }}>
         <div style={{ fontSize: 36, marginBottom: 10 }}>⚠️</div>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#E5E7EB', marginBottom: 8 }}>界面出了点问题</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#E5E7EB', marginBottom: 8 }}>Something went wrong</h2>
         <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16, wordBreak: 'break-word' }}>
           {String(this.state.error?.message || this.state.error)}
         </p>

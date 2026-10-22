@@ -202,7 +202,7 @@ export function AgentTab(props: Props) {
 
           <div style={{ fontWeight: 700, color: '#E5E7EB', marginTop: 10, marginBottom: 2 }}>Step by step</div>
           <ol style={{ margin: '4px 0 0', paddingLeft: 18, display: 'grid', gap: 3 }}>
-            <li>Pick a person in the top <strong style={{ color: '#E5E7EB' }}>Person picker</strong> (or pin one with the 📌 dropdown above) — the agent binds to their saved profile habits automatically.</li>
+            <li>Pick a person in the top <strong style={{ color: '#E5E7EB' }}>Person picker</strong>, or click <strong style={{ color: '#E5E7EB' }}>🔗 Bound to ▾</strong> right here to jump to ANY person you've created (Maria or a custom one) — the agent then grounds on that saved profile's habits automatically.</li>
             <li>Click <strong style={{ color: '#E5E7EB' }}>🔒 Profile lock</strong> so the agent uses ONLY the saved profile habits — then just ask directly, no need to re-type your tastes.</li>
             <li>No person bound (<strong style={{ color: '#E5E7EB' }}>🚫 No persona</strong>)? Type your own habits &amp; tastes into the box first, then ask — only those become the Qloo seeds.</li>
             <li>You can store as many habits in a profile as you like, but each question matches at most the <strong style={{ color: '#FBBF24' }}>first 6</strong> as Qloo anchors.</li>
