@@ -103,11 +103,11 @@ class TestToVariantResult:
         recs = [
             {
                 "name": "Congee House",
-                "health": {"passes": True, "labels": ["低钠倾向"], "warnings": []},
+                "health": {"passes": True, "labels": ["Low sodium tendency"], "warnings": []},
             },
             {
                 "name": "BBQ",
-                "health": {"passes": False, "labels": [], "warnings": ["可能高钠"]},
+                "health": {"passes": False, "labels": [], "warnings": ["May be high in sodium"]},
             },
         ]
         out = _to_variant_result(recs, "live")
@@ -119,7 +119,7 @@ class TestToVariantResult:
         first = out["rationale"][0]
         assert first["name"] == "Congee House"
         assert first["passes"] is True
-        assert first["safety_validation"] == "低钠倾向"
+        assert first["safety_validation"] == "Low sodium tendency"
         assert "cultural_match" in first
 
     def test_empty_recs_no_top_pick(self):
@@ -199,7 +199,7 @@ class TestRunComparison:
         with patch("app.services.eval.ablation.recommend_meals", new_callable=AsyncMock) as mock_rm:
             mock_rm.return_value = {
                 "recommendations": [
-                    {"name": "Da Mario", "health": {"passes": True, "labels": ["低钠倾向"], "warnings": []}},
+                    {"name": "Da Mario", "health": {"passes": True, "labels": ["Low sodium tendency"], "warnings": []}},
                 ],
                 "error": None,
                 "source": "qloo",
@@ -235,10 +235,10 @@ class TestAblationAPI:
         assert body["data_source"] == "preview"
         assert len(body["comparison"]) == len(_DEMO_CASES)
         for row in body["comparison"]:
-            assert set(row) == {"case", "variant_a", "variant_b"}
+            assert set(row) == {"case", "variant_a", "variant_b", "diff"}
             va, vb = row["variant_a"], row["variant_b"]
             for v in (va, vb):
-                for key in ("top_pick", "has_cultural_match", "cultural_grounding", "data_source", "rationale"):
+                for key in ("top_pick", "has_cultural_match", "cultural_grounding", "data_source", "rationale", "grounding_note"):
                     assert key in v
 
     def test_comparison_endpoint_live(self):

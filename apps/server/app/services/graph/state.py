@@ -157,11 +157,18 @@ class AgentState(TypedDict, total=False):
     qloo_enabled: bool
     qloo_seed_entity_ids: list[str]
     qloo_seed_names: list[str]
+    qloo_resolved_names: list[str]
     qloo_target_domain: str
     qloo_recommendations: list[dict[str, Any]]
     qloo_cross_domain_results: dict[str, list[dict[str, Any]]]
     qloo_taste_context: str
     qloo_cultural_fit_scores: list[dict[str, Any]]
+    qloo_query: dict[str, Any]                 # B档: build_qloo_query 产出的结构化查询负载
+    qloo_raw_response: dict[str, Any]          # B档: qloo_call_node 记录的原始结果摘要（可观测性）
+    fallback_message: str                      # B档: fallback_node 降级原因文案
+    retry_triggered: bool                      # B档: 是否触发过 Qloo 重试回环
+    qloo_retry_reason: str                     # B档: 最近一次重试的触发原因
+    feedback_store: Any                       # P3 DI: session FeedbackStore injected by /chat/agent
 
     # ========== Senior Dining Sub-Graph ==========
     taste_entities: list[dict[str, Any]]
@@ -272,11 +279,17 @@ def init_state(
         qloo_enabled=False,
         qloo_seed_entity_ids=[],
         qloo_seed_names=[],
+        qloo_resolved_names=[],
         qloo_target_domain="",
         qloo_recommendations=[],
         qloo_cross_domain_results={},
         qloo_taste_context="",
         qloo_cultural_fit_scores=[],
+        qloo_query={},
+        qloo_raw_response={},
+        fallback_message="",
+        retry_triggered=False,
+        qloo_retry_reason="",
         taste_entities=[],
         taste_data_source="",
         health_constraints={},

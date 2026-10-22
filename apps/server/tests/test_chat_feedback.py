@@ -34,7 +34,7 @@ def _mock_qloo_enabled():
 
 
 def test_feedback_endpoint_preview_records():
-    feedback_store._feedback_records.clear()
+    feedback_store.reset_feedback_stores()
     with patch(
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_disabled()
     ):
@@ -57,16 +57,14 @@ def test_feedback_endpoint_preview_records():
     assert payload["message_id"] == "msg-1"
     assert "preview" in (payload["note"] or "").lower()
 
-    records = feedback_store.get_feedback_records()
+    records = feedback_store.get_feedback_store().get_feedback_records()
     assert "msg-1" in records
     assert records["msg-1"]["thumb"] == "up"
     assert len(records["msg-1"]["taste_entities"]) == 2
 
 
 def test_feedback_endpoint_live_records_overlay():
-    feedback_store._feedback_records.clear()
-    feedback_store._liked_taste_names.clear()
-    feedback_store._disliked_taste_names.clear()
+    feedback_store.reset_feedback_stores()
     with patch(
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_enabled()
     ):
@@ -88,13 +86,11 @@ def test_feedback_endpoint_live_records_overlay():
     assert payload["liked_taste_names"] == ["Radiohead"]
     assert payload["disliked_taste_names"] == []
 
-    assert feedback_store.get_liked_taste_names()["Radiohead"] == 1.0
+    assert feedback_store.get_feedback_store().get_liked_taste_names()["Radiohead"] == 1.0
 
 
 def test_feedback_endpoint_live_down_up_moves_between_pools():
-    feedback_store._feedback_records.clear()
-    feedback_store._liked_taste_names.clear()
-    feedback_store._disliked_taste_names.clear()
+    feedback_store.reset_feedback_stores()
     with patch(
         "app.services.qloo.client.get_qloo_client", return_value=_mock_qloo_enabled()
     ):
@@ -104,8 +100,8 @@ def test_feedback_endpoint_live_down_up_moves_between_pools():
     payload = resp.json()
     assert payload["liked_taste_names"] == ["Muse"]
     assert payload["disliked_taste_names"] == []
-    assert feedback_store.get_liked_taste_names().get("Muse") == 1.0
-    assert "Muse" not in feedback_store.get_disliked_taste_names()
+    assert feedback_store.get_feedback_store().get_liked_taste_names().get("Muse") == 1.0
+    assert "Muse" not in feedback_store.get_feedback_store().get_disliked_taste_names()
 
 
 def test_feedback_endpoint_bad_thumb_rejected():
@@ -114,10 +110,10 @@ def test_feedback_endpoint_bad_thumb_rejected():
 
 
 def test_feedback_store_roundtrip_deltas():
-    feedback_store._feedback_records.clear()
-    feedback_store._preview_pool_deltas.clear()
+    feedback_store.reset_feedback_stores()
+    _store = feedback_store.get_feedback_store()
 
-    feedback_store.record_feedback("m-up", "up", ["Jiangnan light braised cuisine"])
-    feedback_store.record_feedback("m-down", "down", ["Jiangnan light braised cuisine"])
+    _store.record_feedback("m-up", "up", ["Jiangnan light braised cuisine"])
+    _store.record_feedback("m-down", "down", ["Jiangnan light braised cuisine"])
 
-    deltas = feedback_store.get_preview_pool_deltas()
+    deltas = _store.get_preview_pool_deltas()

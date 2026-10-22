@@ -115,9 +115,17 @@ async def test_real_recommend_meals_live(client: QlooClient) -> None:
     recs = result["recommendations"]
     assert recs, "recommend_meals should return places with a live key"
     assert all("name" in r and "health" in r for r in recs)
-    # highest fit must be first
+    # Sort contract (tastecare._sort_candidates): candidates passing the health
+    # constraints come first, then by fit descending WITHIN each pass-group.
+    # (A high-fit place flagged high-sodium by the USDA layer legitimately sorts
+    # after a lower-fit passing place — so we assert group order, not global
+    # fit order.)
+    flags = [bool(r.get("health", {}).get("passes")) for r in recs]
+    assert flags == sorted(flags, reverse=True), "passing candidates must come first"
     fits = [r.get("fit", 0.0) for r in recs]
-    assert all(fits[i] >= fits[i + 1] for i in range(len(fits) - 1))
+    for i in range(len(fits) - 1):
+        if flags[i] == flags[i + 1]:
+            assert fits[i] >= fits[i + 1], "fit must descend within the same pass-group"
 
 
 @pytest.mark.real_api

@@ -21,7 +21,7 @@ TasteCare fixes that. The agent resolves Maria's cultural anchors (Sinatra, jazz
 
 ## Repository Structure
 
-This repo is organized as **Agent Skeleton + TasteCare Subsystem**. The `apps/server/app/services/qloo/` directory is the TasteCare core — the culturally intelligent dining recommendation engine. The surrounding agent skeleton (graph, LLM client, RAG pipeline) provides the orchestration infrastructure that TasteCare plugs into. Legacy desktop-agent code has been cleaned out; only TasteCare-relevant components remain.
+This repo is organized as **Agent Skeleton + TasteCare Subsystem**. The `apps/server/app/services/qloo/` directory is the TasteCare core — the culturally intelligent dining recommendation engine. The surrounding agent skeleton (graph, LLM client, RAG pipeline) provides the orchestration infrastructure that TasteCare plugs into. Legacy desktop-agent code has been cleaned out; only TasteCare-relevant components remain. A `docs/` folder holds the **[architecture diagrams](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ARCHITECTURE.md)**, the **[LangGraph agent-workflow spec](https://github.com/Zn3-boop/TasteCare/blob/main/docs/QLOO_AGENT_GRAPH.md)**, and the **[ablation methodology](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ABLATION_EXPERIMENT.md)** used to evidence Qloo's contribution.
 
 ## The Problem
 
@@ -55,26 +55,68 @@ The demo runs end-to-end **without a Qloo API key** using a clearly-labelled Mar
 
 ## Testing — "Mock is the foundation, live is the proof"
 
-- **395 automated tests** (`python -m pytest`): 382 offline (mocks/unit/contract, runs in CI with no secrets) + 13 live `real_api` smoke tests (run automatically when `QLOO_API_KEY` is present).
+- **536 collected tests** (`python -m pytest`): 535 passing offline (mocks/unit/contract, runs in CI with no secrets) + a live `real_api` smoke track (skipped locally when `QLOO_API_KEY` is absent, runs automatically when it is present).
 - Coverage spans: Qloo client serialization, taste-context executor, dining discriminator, health/medication screening, ablation comparison, HTTP contract, prompt-template rendering, and cache behavior.
 - **CI dual track** (`.github/workflows/ci.yml`): offline backend suite (no key needed) + optional live job (only when `QLOO_API_KEY` secret is set) + frontend web/desktop builds.
 - We probed the real Qloo hackathon API during development and caught a genuine API quirk (`signal == results` returns an empty body) — three service functions were fixed and verified against live endpoints, then locked in with the `real_api` suite.
 
 ## Live Demo Script (Judge Prompt)
 
+The demo is **one journey, one persona** — Maria (built-in) or a custom person you create. The Senior Dining tab is the ONE DEMO: a 🚀 strip maps Persona → Search & Health Screening → Taste Bridge → Evidence, with a one-click link to the ⚖️ Evidence tab (Why Qloo + Ablation stacked in one place).
+
 > "Recommend dinner for Maria, who has hypertension, poor dentition, and prefers light Jiangnan home cooking."
 
-Expected: the agent calls `qloo:taste-context`, shows the grounding evidence panel, recommends culturally recognizable, health-safe meals (low-sodium Jiangnan braised dishes, soft steamed vegetables) — and accepts your 👍/👎 to refine the profile.
+Expected: the green **🛡️ Health screening passed** band names the active constraints (low-sodium / easy-to-chew / medication-aware) above every screened meal; the grounding evidence panel shows the real Qloo call (culture matched first, health filtered second); and recommendations stay culturally recognizable — low-sodium Jiangnan braised dishes, soft steamed vegetables — with 👍/👎 to refine the profile.
 
-Cross-domain probe: *"I love the films of Christopher Nolan and classic Chicago blues — where should I eat in New York, and what should I wear?"*
+Cross-domain probe: *"I love the films of Christopher Nolan and classic Chicago blues — where should I eat in New York, and what should I wear?"* — the Taste Bridge constellation re-centers on that persona's anchors (switching personas in the PersonaPicker re-runs the same reusable bridge).
 
 ## Built With
 
 - Qloo API (Cultural taste graph / LLM hackathon endpoint)
+- **LangGraph StateGraph** — core recommendation workflow orchestration: conditional routing, automatic retry & error recovery loops, and the `qloo_cultural_recommend_node` running *inside* the graph (satisfies the "built using an agent framework" requirement with real graph execution, not a wrapper)
 - FastAPI (Python) — agent workflow, tools, health filter
 - React + Vite + TypeScript — hosted web demo
-- LangGraph-style tool invocation in the orchestrator (2-round tool loop)
-- pytest — 395 tests (382 offline + 13 live `real_api`); CI dual track: offline suite + optional live job when `QLOO_API_KEY` secret exists
+- numpy (community peer matching demo: cosine similarity with local all-MiniLM-L6-v2; FAISS scaling plan pre-written offline for >1000 peers)
+- pytest — automated tests; CI dual track: offline suite + optional live job when `QLOO_API_KEY` secret exists
+
+## Agent Framework (LangGraph)
+
+Our core recommendation workflow is orchestrated with **LangGraph StateGraph**, with conditional routing, automatic retry & error recovery loops. The Qloo cultural matching node runs inside the graph to satisfy agent framework requirements — `/chat/agent` live grounding executes `qloo_cultural_recommend_node` (the same node the compiled graph routes through via `taste_context_extract → health_constraint_extract → qloo_cultural_recommend_node`), so the evidence panel is backed by genuine graph execution.
+
+## Scaling Architecture
+
+Peer matching uses lightweight **numpy vector search for demo** (sentence-transformers + all-MiniLM-L6-v2 local model, plain numpy cosine — no FAISS in the hot path). A fully-tested **FAISS IndexFlatIP scaling plan** is pre-written as offline expansion code, ready to be enabled once peer count exceeds 1000.
+
+## Ablation Experiment — the difference is Qloo, measured
+
+We don't just claim Qloo makes us better; we prove it with strict
+**single-variable ablation** at two levels:
+
+### Level 1 — unit test (`test_chat_ablation_consistency.py`)
+
+The with-Qloo branch and the `disable_qloo=true` baseline fire with identical
+session/profile state. Only the `[Qloo Cultural Context]` block can differ:
+
+| Variable | With Qloo | Without Qloo |
+|---|---|---|
+| System prompt | `CULTURAL_RECOMMENDATION_SYSTEM_PROMPT` | **identical** |
+| User taste-profile likes | injected | **identical** |
+| `temperature` / `task_type` | 0.2 / `qloo_cultural_recommendation` | **identical** |
+| Raw user message | `"Please suggest a low-sodium dinner."` | **identical** |
+| **Qloo grounding** | **`[Qloo Cultural Context]` injected** | **absent** — the ONLY difference |
+
+### Level 2 — live demo method (`POST /api/v1/ablation/comparison`)
+
+Same senior-dining prompts → **Variant A** (pure rule-based health screening,
+no Qloo, no LLM) vs **Variant B** (the real Qloo TasteCare pipeline), sharing
+identical candidates — so the on-screen gap is exactly the cultural grounding.
+The web **⚖️ Evidence tab** (Ablation part) renders both side-by-side in one click, with an honest
+`● Live Qloo data` vs clearly-labeled preview indicator.
+
+> Run it yourself: `cd apps/server && python -m pytest tests/test_chat_ablation_consistency.py -v`, or click **"▶ Run Ablation Comparison"** in the hosted demo.
+
+Full methodology, the controlled-variable table, and threats to validity are in
+[`docs/ABLATION_EXPERIMENT.md`](https://github.com/Zn3-boop/TasteCare/blob/main/docs/ABLATION_EXPERIMENT.md).
 
 ## Try It
 
@@ -95,9 +137,16 @@ Optional: `QLOO_API_KEY=...` for live Qloo data; works in demo/preview mode othe
 - Expand health constraints with medication-interaction knowledge and clinician-verified data.
 - Voice-first experience for older adults; caregiver dashboard for medication and meal coordination.
 
+## Final-contract proof (what judges see on screen)
+
+- **Fail-loud location mismatch.** Ask for dining "in Chicago" and TasteCare's `_verify_dining_location` guard keeps only venues with a verifiable city signal and *reports* the mismatches in the reply — nothing is silently substituted or silently dropped. Non-dining entities (music, film, fashion) are never touched.
+- **Real match scores, passthrough only.** The grounding panel renders Qloo's actual `score`/`popularity` as percentages on every resolved entity (e.g. "92%"). If Qloo returns neither, the badge is omitted — no fabricated numbers.
+- **One global persona, persisted.** A top-of-page PersonaPicker binds the whole app (Senior Dining, Taste Bridge, Agent, Discover, Community) to Maria — the built-in preset — or to a custom person (name, taste anchors, health constraints, location). The persona id + custom profiles persist in `localStorage` (`tastecare.persona.v1`) and the tab rides the URL hash, so **refresh ≠ lose your place**. Community connections live in a lightweight JSON store on the server (`server/data/community_connections.json`) and survive restarts too.
+- **Process visualization.** A one-line status strip times every real Qloo query (`⏳ Querying Qloo Taste Graph… → ✓ N entities matched (T s)`), and the Taste Bridge star graph switches to text nodes with 200ms stagger fade-in + slow edge draw for custom personas (Maria keeps the original look).
+
 ## Journey / Notes for Judges
 
-- We prioritized an **honest** prototype: preview data is labeled preview, medical limits are stated clearly, and no real user data is stored.
+- We prioritized an **honest** prototype: preview data is labeled preview, medical limits are stated clearly, and no personal user data is stored (community connections keep only demo-peer ids + mutual-opt-in status).
 - We found and fixed a real bug the demo would have hit: the chat endpoint originally called the OpenAI SDK's non-callable namespace object and would have crashed at runtime; it now routes through the shared LLM provider and wraps replies with the Qloo cultural system prompt.
 - The core insight we want the judges to take away: **without Qloo, this is just another healthy-meal list; with Qloo, it becomes advice a person will actually follow.**
 

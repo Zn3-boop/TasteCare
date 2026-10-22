@@ -41,9 +41,20 @@ export function AblationTab() {
       <div style={{ ...sx.card, marginBottom: 20, textAlign: 'center', background: 'linear-gradient(135deg, #7C2D1210, #111827)', border: '1px solid #B4530944' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F59E0B', marginBottom: 8 }}>Ablation Comparison</h2>
         <p style={{ fontSize: 14, color: '#9CA3AF', lineHeight: 1.6 }}>
-          Side-by-side: <strong style={{ color: '#FCA5A5' }}>Variant A</strong> (pure LLM + health rules, <em>no Qloo</em>) vs{' '}
-          <strong style={{ color: '#6EE7B7' }}>Variant B</strong> (LLM + Qloo taste graph + health rules). See the difference cultural grounding makes.
+          Side-by-side: <strong style={{ color: '#FCA5A5' }}>Variant A</strong> (rule-based health screening, <em>no Qloo</em>) vs{' '}
+          <strong style={{ color: '#6EE7B7' }}>Variant B</strong> (Qloo taste graph + health rules). See the difference cultural grounding makes.
         </p>
+        <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
+          💡 This comparison needs <strong style={{ color: '#6EE7B7' }}>only QLOO_API_KEY</strong> — no LLM key. Variant A is pure rules; Variant B runs the live TasteCare pipeline.
+        </p>
+        <p style={{ fontSize: 11, color: '#6EE7B7', marginTop: 6, fontWeight: 600 }}>
+          ⚡ Same prompt → one request → Variant A &amp; Variant B rendered side-by-side (no manual tab switching).
+        </p>
+        {data && data.data_source === 'live' && (
+          <p style={{ fontSize: 11, color: '#34D399', marginTop: 6, fontWeight: 700 }}>
+            ● Live Qloo data — real taste-graph grounding from QLOO_API_KEY.
+          </p>
+        )}
         {data && data.data_source === 'preview' && (
           <p style={{ fontSize: 11, color: '#FCD34D', marginTop: 6, fontStyle: 'italic' }}>
             Demo preview data (QLOO_API_KEY not set) — clearly labelled, not live Qloo output.
@@ -72,6 +83,21 @@ export function AblationTab() {
               <div style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 14, lineHeight: 1.5, fontStyle: 'italic' }}>
                 Prompt {i + 1}: “{row.case.query}”
               </div>
+              {row.diff && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 12px', borderRadius: 999, background: row.diff.top_changed ? '#065F4633' : '#1F2937', border: `1px solid ${row.diff.top_changed ? '#34D399' : '#374151'}`, color: row.diff.top_changed ? '#6EE7B7' : '#9CA3AF' }}>
+                    {row.diff.top_changed ? '🔄 Qloo moved the top pick' : '✓ Same top pick'}
+                  </span>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 12px', borderRadius: 999, background: '#1F2937', border: '1px solid #374151', color: '#D1D5DB' }}>
+                    top-4 overlap {row.diff.top4_overlap}/4
+                  </span>
+                  {row.diff.b_only.length > 0 && (
+                    <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 12px', borderRadius: 999, background: '#8B5CF622', border: '1px solid #8B5CF6', color: '#C4B5FD' }}>
+                      B-only: {row.diff.b_only.join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div style={{ borderRadius: 12, border: '1px solid #7F1D1D44', background: '#111827', padding: 16 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -88,6 +114,11 @@ export function AblationTab() {
                     <span style={{ fontSize: 11, color: '#9CA3AF' }}>Top: {row.variant_b.top_pick || '—'}</span>
                   </div>
                   <div style={{ fontSize: 11, color: '#6EE7B7', marginBottom: 10 }}>{row.variant_b.has_cultural_match ? '✓ cultural match (Qloo-grounded)' : '✗ no cultural match'}</div>
+                  {row.variant_b.grounding_note && (
+                    <div style={{ fontSize: 11.5, color: '#D1D5DB', lineHeight: 1.5, marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: '#065F4622', border: '1px solid #05966944' }}>
+                      <span style={{ fontWeight: 700, color: '#6EE7B7' }}>🧭 Why this ordering:</span> {row.variant_b.grounding_note}
+                    </div>
+                  )}
                   {(row.variant_b.rationale || []).map((r, j) => <RationaleCard key={j} item={r} tone="b" />)}
                   {(row.variant_b.rationale || []).length === 0 && <div style={{ color: '#6B7280', fontSize: 12 }}>No recommendations.</div>}
                 </div>

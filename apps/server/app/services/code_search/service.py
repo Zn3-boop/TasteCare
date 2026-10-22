@@ -37,14 +37,28 @@ def sanitize_search_root(root_dir: str) -> str | None:
         root = os.path.abspath(os.path.expanduser(root_dir or "."))
     except Exception:
         return None
-    lower = root.lower().rstrip("\\/")
+    raw = (root_dir or ".").strip()
+    # 识别 Windows 盘符绝对路径（如 C:\Windows / C:/Windows）。
+    # 在 Linux/CI 上 os.path.abspath 不识别盘符，会把 "C:\Windows" 拼接到 cwd 下，
+    # 导致系统目录黑名单检查失效；这里单独按 Windows 语义归一化后校验。
+    win_drive = bool(re.match(r"^[a-zA-Z]:[\\/]", raw))
+    if win_drive:
+        lower = re.sub(r"[\\/]+", lambda _m: "\\", raw).lower().rstrip("\\")
+        sep = "\\"
+    else:
+        lower = root.lower().rstrip("\\/")
+        sep = os.sep
     for bad in _FORBIDDEN_SEARCH_ROOTS:
         bad_l = bad.rstrip("\\/")
-        if lower == bad_l or lower.startswith(bad_l + os.sep):
+        if lower == bad_l or lower.startswith(bad_l + sep):
             return None
     for allowed in ALLOWED_SEARCH_ROOTS:
-        allow = os.path.abspath(allowed).lower().rstrip("\\/")
-        if lower == allow or lower.startswith(allow + os.sep):
+        allow = os.path.abspath(allowed).lower()
+        if win_drive:
+            allow = re.sub(r"[\\/]+", lambda _m: "\\", allow).rstrip("\\")
+        else:
+            allow = allow.rstrip("\\/")
+        if lower == allow or lower.startswith(allow + sep):
             return root
     return None
 
@@ -59,7 +73,7 @@ class SearchType(Enum):
 
 
 def classify_search_type(query: str) -> SearchType:
-    """
+    r"""
     S1: 自动判断搜索类型
     - 含glob通配符(*, **, ?, [) → GLOB
     - 含正则特征(/^..$/, \d, \w) → GREP

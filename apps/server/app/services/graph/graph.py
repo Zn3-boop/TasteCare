@@ -29,6 +29,8 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 DEFAULT_RECURSION_LIMIT = int(os.getenv("GRAPH_RECURSION_LIMIT", "15"))
 MAX_CORRECTION_LOOP = int(os.getenv("MAX_CORRECTION_LOOP", "2"))
 
+QLOO_RECOMMEND_NODE = "qloo_cultural_recommend_node"
+
 
 def get_checkpointer() -> Any:
     env = os.getenv("GRAPH_ENV", "dev")
@@ -177,10 +179,125 @@ def approval_node(state: AgentState) -> dict:
 _UNSET = object()
 
 
+def _build_qloo_minimal_graph():
+    """A档保底最简图：START → route_main_flow → qloo_cultural_recommend_node → END。
+
+    - 只包含 Qloo 文化推荐节点本身，节点由 LangGraph 框架调度执行（满足
+      "built using an agent framework" 评审门槛，且是真实 graph execution）。
+    - **不传 checkpointer**：不开启 Checkpointer / 会话持久化（红线），
+      所有状态转换均发生在单次请求内。
+    - 无 hooks、无 interrupt，保留 B档在 checkers 内扩展重试 / 意图分支的余地。
+    """
+    from app.services.graph.nodes import qloo_cultural_recommend_node
+    from app.services.graph.checkers import route_main_flow
+
+    builder = StateGraph(AgentState)
+    builder.add_node("qloo_cultural_recommend_node", qloo_cultural_recommend_node)
+    builder.add_conditional_edges(
+        START,
+        route_main_flow,
+        {QLOO_RECOMMEND_NODE: QLOO_RECOMMEND_NODE},
+    )
+    builder.add_edge(QLOO_RECOMMEND_NODE, END)
+    return builder.compile()
+
+def build_qloo_agent_graph():
+    """B档完整 Qloo Agent 编排图（/chat/agent live 分支使用的默认图）。
+
+    拓扑（checkers 条件路由 + 重试回环）：
+
+        flowchart LR
+            START --> input_node
+            input_node --> intent_node
+            intent_node -->|route_intent: qloo_recommend| build_qloo_query
+            intent_node -->|route_intent: unknown| fallback_node
+            build_qloo_query --> qloo_call_node
+            qloo_call_node -->|check_qloo_result: retry < 2| retry_node
+            qloo_call_node -->|check_qloo_result: success| format_output
+            qloo_call_node -->|check_qloo_result: exhausted| fallback_node
+            retry_node --> qloo_call_node
+            format_output --> END
+            fallback_node --> END
+
+    - 红线：compile() 不传 checkpointer —— 不开启会话持久化，单请求内完成全部状态转换。
+    - 红线：意图分类仅规则关键词（checkers.classify_intent），不引入本地 LLM。
+    - A档保底仍保留：/chat/agent 外层 try/except 在图执行失败时降级为直接
+      await qloo_cultural_recommend_node，永不 hard-fail。
+    """
+    from app.services.graph.nodes import (
+        input_node,
+        intent_node,
+        build_qloo_query,
+        qloo_call_node,
+        retry_node,
+        format_output,
+        fallback_node,
+    )
+    from app.services.graph.checkers import route_intent, check_qloo_result
+
+    builder = StateGraph(AgentState)
+    builder.add_node("input_node", input_node)
+    builder.add_node("intent_node", intent_node)
+    builder.add_node("build_qloo_query", build_qloo_query)
+    builder.add_node("qloo_call_node", qloo_call_node)
+    builder.add_node("retry_node", retry_node)
+    builder.add_node("format_output", format_output)
+    builder.add_node("fallback_node", fallback_node)
+
+    builder.add_edge(START, "input_node")
+    builder.add_edge("input_node", "intent_node")
+    builder.add_conditional_edges(
+        "intent_node",
+        route_intent,
+        {"build_qloo_query": "build_qloo_query", "fallback_node": "fallback_node"},
+    )
+    builder.add_edge("build_qloo_query", "qloo_call_node")
+    builder.add_conditional_edges(
+        "qloo_call_node",
+        check_qloo_result,
+        {
+            "retry_node": "retry_node",
+            "format_output": "format_output",
+            "fallback_node": "fallback_node",
+        },
+    )
+    builder.add_edge("retry_node", "qloo_call_node")
+    builder.add_edge("format_output", END)
+    builder.add_edge("fallback_node", END)
+    return builder.compile()
+
+
+def draw_mermaid() -> str:
+    """返回 B档 Qloo Agent 图的 Mermaid 拓扑文本（README / Devpost 展示用）。"""
+    return "\n".join(
+        [
+            "flowchart LR",
+            "    START --> input_node",
+            "    input_node --> intent_node",
+            "    intent_node -->|route_intent: qloo_recommend| build_qloo_query",
+            "    intent_node -->|route_intent: unknown| fallback_node",
+            "    build_qloo_query --> qloo_call_node",
+            "    qloo_call_node -->|check_qloo_result: retry < 2| retry_node",
+            "    qloo_call_node -->|check_qloo_result: success| format_output",
+            "    qloo_call_node -->|check_qloo_result: exhausted| fallback_node",
+            "    retry_node --> qloo_call_node",
+            "    format_output --> END",
+            "    fallback_node --> END",
+        ]
+    )
+
+
+
+
 def build_agent_graph(
     checkpointer: Any = _UNSET,
     interrupt_before_approval: bool = True,
+    minimal: bool = False,
 ):
+    # A档保底路径：最简可编译图（无 checkpointer），保留供 A档测试 / 降级参考；
+    # /chat/agent live 分支已切换到 build_qloo_agent_graph()（B档完整编排图）。
+    if minimal:
+        return _build_qloo_minimal_graph()
     from app.services.graph.nodes import (
         detect_intent_node,
         extract_entities_node,

@@ -7,8 +7,8 @@ Proves the TasteCare scenario shell works with a real key:
   3. Annotate each place with senior health constraints (low-sodium / low-sugar
      / soft-chewable) and print a plain-language explanation + disclaimer.
 
-Usage:
-    $env:QLOO_API_KEY = "hackathon-key"
+Usage (set your hackathon key — NEVER hardcode it here):
+    $env:QLOO_API_KEY = "your-key"
     python -m app.scripts.qloo_tastecare_smoke     # (run from apps/server)
     # or from repo root:
     python apps/server/scripts/qloo_tastecare_smoke.py
@@ -48,7 +48,7 @@ async def main() -> None:
         "low_sodium": True,
         "low_sugar": True,
         "soft_chewable": True,
-        "medications": ["血压药"],
+        "medications": ["blood pressure medication"],
     }
 
     print("\n[TasteCare] recommending senior-friendly dining places...")

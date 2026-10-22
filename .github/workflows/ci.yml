@@ -17,9 +17,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r apps/server/requirements.txt -r apps/server/requirements-dev.txt
       - name: Run offline suite (mocks/unit; real_api excluded — needs a live key)
+        id: offline-suite
         run: |
           cd apps/server
-          python -m pytest -q --tb=short -m "not real_api"
+          set +e
+          python -m pytest -q --tb=long -m "not real_api" -p no:cacheprovider 2>&1 | tee /tmp/pytest-out.log
+          rc=${PIPESTATUS[0]}
+          if [ $rc -ne 0 ]; then
+            echo "::error::pytest exited with code $rc"
+            {
+              echo "## Backend pytest failed (exit $rc)"
+              echo '```'
+              tail -120 /tmp/pytest-out.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $rc
+      - name: Upload pytest log on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pytest-log
+          path: /tmp/pytest-out.log
+          if-no-files-found: ignore
 
   # Optional live job: the live Qloo tests run exactly when QLOO_API_KEY is
   # present. GitHub's workflow parser does NOT allow the `secrets` context in

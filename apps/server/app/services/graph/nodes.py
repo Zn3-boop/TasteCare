@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import random
+import re
 import time
 from typing import Any
 
@@ -1950,6 +1951,17 @@ def route_after_hitl(state: AgentState) -> str:
 
 
 async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
+    """Qloo cultural anchor resolution + taste recommendation node.
+
+    This node is the SINGLE entry point for Qloo grounding in the agent
+    pipeline: it is (a) wired into the full LangGraph StateGraph and (b) also
+    awaited directly by the /chat/agent endpoint, so every live recommendation
+    actually executes inside the agent framework's node implementation.
+
+    Every Qloo HTTP call is individually fault-tolerant: a failure in one call
+    degrades to an empty result instead of failing the whole node, so a mock or
+    flaky network can never break the chat path.
+    """
     with NodeMetrics("qloo_cultural_recommend_node"):
         try:
             from app.services.qloo.client import get_qloo_client
@@ -1962,57 +1974,206 @@ async def qloo_cultural_recommend_node(state: AgentState) -> dict[str, Any]:
             client = get_qloo_client()
             if not client.enabled:
                 return {"qloo_enabled": False, "qloo_taste_context": ""}
+            # P3 DI: /chat/agent injects the session's FeedbackStore via
+            # node_state["feedback_store"]; when the node runs outside that
+            # endpoint, fall back to the registry keyed by session_id.
+            store = state.get("feedback_store")
+            if store is None:
+                from app.services.qloo.feedback import get_feedback_store
+
+                store = get_feedback_store(state.get("session_id"))
             raw_query = state.get("raw_query", "")
             entities = state.get("entities", {})
+            if not isinstance(entities, dict):
+                entities = {}
             taste_entities = state.get("taste_entities", [])
+            if not isinstance(taste_entities, list):
+                taste_entities = []
             seed_names = entities.get("cultural_likes", []) if isinstance(entities.get("cultural_likes"), list) else []
-            target_domain = entities.get("target_domain", "")
+            if not isinstance(seed_names, list):
+                seed_names = []
+            seed_names = [str(s) for s in seed_names if s]
+            target_domain = entities.get("target_domain", "") or ""
+            if not isinstance(target_domain, str):
+                target_domain = ""
+            # Multi-domain support: a combined "eat + wear" request carries ALL
+            # matched target domains so fashion (and other secondary asks) are
+            # never truncated away by the old single-domain detection.
+            raw_domains = entities.get("target_domains", [])
+            if not isinstance(raw_domains, list):
+                raw_domains = [raw_domains] if raw_domains else []
+            target_domains: list[str] = [str(d) for d in raw_domains if d]
+            if not target_domains and target_domain:
+                target_domains = [target_domain]
+            # Geographic signal ("in New York") plumbed to Qloo's
+            # filter.location.query so recommendations respect the user's city.
+            location_query = entities.get("location_query", "") or ""
+            if not isinstance(location_query, str):
+                location_query = ""
+            # Qloo structured-template excludes: seed-level blacklist (exact /
+            # substring) + whole-class result keywords ("italian pop").
+            exclude_seeds = entities.get("exclude_seeds", [])
+            exclude_seeds = [str(s) for s in exclude_seeds] if isinstance(exclude_seeds, list) else []
+            exclude_keywords = entities.get("exclude_keywords", [])
+            exclude_keywords = (
+                [str(k).lower() for k in exclude_keywords]
+                if isinstance(exclude_keywords, list)
+                else []
+            )
+            blocked_set = {s.strip().lower() for s in exclude_seeds}
+            keyword_set = {k for k in exclude_keywords if k}
             if not seed_names:
                 seed_names = [raw_query]
             seed_entity_ids: list[str] = []
+            # Blocked anchors are never used as signals; when they still resolve,
+            # their entity IDs are collected so Qloo's filter.exclude.entities can
+            # keep them (and their off-theme neighbors) out of the results.
+            exclude_entity_ids: list[str] = []
+            # Resolved taste-entity names (already grounded) are skipped in the
+            # per-seed search loop below. NOTE: build the set in an isolated
+            # statement — `name in (...) for te in taste_entities` inside any()
+            # is unreliable under CPython 3.13's inlined-comprehension handling.
+            resolved_taste_names: set[str] = set()
+            resolved_entities: list[dict[str, Any]] = []
             if taste_entities:
                 for te in taste_entities:
+                    if not isinstance(te, dict):
+                        continue
                     eid = te.get("entity_id") or te.get("id", "")
-                    if eid:
-                        seed_entity_ids.append(eid)
                     name = te.get("name", "")
-                    if name and name not in seed_names:
-                        seed_names.append(name)
-            for name in seed_names:
-                if any(name in (te.get("name", "") for te in taste_entities)):
-                    continue
-                results = await search_cultural_entities(client, name, domain=target_domain or None, limit=1)
-                if results:
-                    eid = results[0].get("id", "")
+                    if name and _seed_is_blocked(str(name), blocked_set, keyword_set):
+                        if eid and eid not in exclude_entity_ids:
+                            exclude_entity_ids.append(eid)
+                        continue
                     if eid:
                         seed_entity_ids.append(eid)
+                        resolved_entities.append(te)
+                    if name:
+                        resolved_taste_names.add(str(name))
+                        if name not in seed_names:
+                            seed_names.append(name)
+            for name in seed_names:
+                if name in resolved_taste_names or _seed_is_blocked(str(name), blocked_set, keyword_set):
+                    continue
+                try:
+                    ent = await _resolve_anchor(client, name)
+                except Exception as e:
+                    logger.warning(f"qloo anchor resolve failed for {name!r}: {e}")
+                    ent = None
+                if not ent or not isinstance(ent, dict):
+                    continue
+                eid = ent.get("id") or ent.get("entity_id", "")
+                if not eid:
+                    continue
+                if eid in seed_entity_ids:
+                    # Same Qloo entity resolved from another seed (e.g. several
+                    # core anchors landing on one artist) — already a signal, so
+                    # never duplicate the anchor in the list or grounding panel.
+                    continue
+                if _seed_is_blocked(str(ent.get("name") or name), blocked_set, keyword_set):
+                    # Resolved to a blacklisted entity — never a signal; exclude it
+                    # from results instead (real Qloo filter.exclude.entities).
+                    if eid not in exclude_entity_ids:
+                        exclude_entity_ids.append(eid)
+                    continue
+                seed_entity_ids.append(eid)
+                resolved_taste_names.add(str(name))
+                # Keep the image URL and any Qloo match score so the web
+                # Grounding panel can render a real thumbnail AND a score
+                # (e.g. "92%") for each resolved anchor — the score is the
+                # unfakeable visual proof this came from the taste graph.
+                score = ent.get("score")
+                if score is None:
+                    score = ent.get("popularity")
+                resolved_entities.append(
+                    {
+                        "entity_id": eid,
+                        "name": ent.get("name") or name,
+                        "type": ent.get("type", ""),
+                        "domain": ent.get("domain", ""),
+                        "image": ent.get("image") or "",
+                        "score": score if isinstance(score, (int, float)) else None,
+                    }
+                )
             if not seed_entity_ids:
                 return {
                     "qloo_enabled": True,
                     "qloo_seed_entity_ids": [],
                     "qloo_seed_names": seed_names,
                     "qloo_target_domain": target_domain,
+                    "qloo_target_domains": target_domains,
+                    "qloo_location_query": location_query,
                     "qloo_recommendations": [],
                     "qloo_cross_domain_results": {},
                     "qloo_taste_context": "",
+                    "qloo_resolved_names": [],
+                    "taste_entities": resolved_entities,
                 }
-            rec_result = await get_taste_based_recommendations(
-                client, seed_entity_ids, target_domain=target_domain or None, limit=10,
-            )
-            cross_result = await get_cross_domain_discovery(
-                client, seed_entity_ids, per_domain_limit=5,
-            )
-            taste_context = await build_cultural_context_for_llm(
-                client, seed_names, target_domain=target_domain or None, limit=8,
-            )
+            # Forward location only when present so fixed-signature test fakes
+            # never receive an unexpected kwarg.
+            rec_kwargs: dict[str, Any] = {}
+            if location_query:
+                rec_kwargs["location_query"] = location_query
+            # The recommendation call additionally carries the resolved-blocked
+            # URNs (Qloo filter.exclude.entities) — still only when present, so
+            # fixed-signature test fakes never see an unexpected kwarg.
+            rec_call_kwargs = dict(rec_kwargs)
+            if exclude_entity_ids:
+                rec_call_kwargs["exclude_entities"] = exclude_entity_ids
+            rec_result: dict[str, Any] = {}
+            try:
+                rec_result = await get_taste_based_recommendations(
+                    client, seed_entity_ids,
+                    target_domain=(target_domains[0] if target_domains else None) or None,
+                    limit=10, store=store, **rec_call_kwargs,
+                )
+            except Exception as e:
+                logger.warning(f"qloo taste recommendations failed: {e}")
+            rec_result = rec_result if isinstance(rec_result, dict) else {}
+            # Result-side class exclusion ("all Italian pop/rap artists"): names
+            # matching whole-class keywords are dropped even when the API filter
+            # could not express the class (Qloo filter.exclude.entities needs
+            # concrete URNs for resolved entities only).
+            if keyword_set and rec_result.get("recommendations"):
+                kept: list[dict[str, Any]] = []
+                for r in rec_result["recommendations"]:
+                    if _seed_is_blocked(str(r.get("name", "")), set(), keyword_set):
+                        continue
+                    kept.append(r)
+                rec_result["recommendations"] = kept
+            cross_result: dict[str, Any] = {}
+            try:
+                cross_result = await get_cross_domain_discovery(
+                    client, seed_entity_ids, per_domain_limit=5, store=store, **rec_kwargs,
+                )
+            except Exception as e:
+                logger.warning(f"qloo cross-domain discovery failed: {e}")
+            if not isinstance(cross_result, dict):
+                cross_result = {}
+            taste_context = ""
+            try:
+                taste_context = await build_cultural_context_for_llm(
+                    client, seed_names,
+                    target_domain=target_domain or None,
+                    target_domains=(target_domains or None),
+                    limit=8, store=store, **rec_kwargs,
+                )
+            except Exception as e:
+                logger.warning(f"qloo context build failed: {e}")
+            if not isinstance(taste_context, str):
+                taste_context = ""
             return {
                 "qloo_enabled": True,
                 "qloo_seed_entity_ids": seed_entity_ids,
                 "qloo_seed_names": seed_names,
                 "qloo_target_domain": target_domain,
+                "qloo_target_domains": target_domains,
+                "qloo_location_query": location_query,
                 "qloo_recommendations": rec_result.get("recommendations", []),
                 "qloo_cross_domain_results": cross_result,
                 "qloo_taste_context": taste_context,
+                "qloo_resolved_names": [str(e.get("name", "")) for e in resolved_entities if e.get("name")],
+                "taste_entities": resolved_entities,
             }
         except Exception as e:
             logger.exception(e)
@@ -2023,6 +2184,405 @@ def route_after_qloo(state: AgentState) -> str:
     if state.get("last_error"):
         return "error_fallback_node"
     return "taste_health_filter_node"
+
+
+# ===== B档 Qloo Agent 编排节点（意图分支 + 重试回环 + 格式化/回退） =====
+# 轻量文化锚点提取：与 chat.py 同源的规则实现，节点自包含（无 NLP 依赖）。
+
+_LIKE_PATTERN = re.compile(
+    r"(?:love|loves|like|likes|enjoy|enjoys|fan of|into)\s+([^.!?。！？\n;]{2,})",
+    re.IGNORECASE,
+)
+_CLAUSE_STARTERS = re.compile(
+    r"\b(but|where|what|how|who|which|when|because|needs?|would|can|to|that)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_like_segments(phrase: str, max_likes: int = 6) -> list[str]:
+    """切分 like 短语为候选文化锚点，并按句式引导词截断尾部（同 chat.py）。"""
+    parts = re.split(r"\s+(?:and|&)\s*|\s+—\s*|\s*,\s*|，|、|;|；", phrase)
+    out: list[str] = []
+    for part in parts:
+        part = part.strip(" \t_·-–—':;\",，。")
+        if not part:
+            continue
+        cut = _CLAUSE_STARTERS.search(part)
+        if cut:
+            part = part[: cut.start()].strip(" \t-–—':;\",，。")
+        part = re.sub(r"^(?:the|a|an)\s+", "", part, count=1, flags=re.I)
+        if not part or part.lower() in out:
+            continue
+        out.append(part)
+        if len(out) >= max_likes:
+            break
+    return out
+
+
+def _extract_plain_list_likes(message: str, max_likes: int = 6) -> list[str]:
+    """节点自包含版：无 like 动词的逗号清单也提取为文化锚点（同 chat.py）。"""
+    msg = (message or "").strip()
+    if msg.count(",") < 2 and msg.count("，") < 2 and msg.count("、") < 2:
+        return []
+    msg = re.sub(
+        r"(?:\b(give|show|tell|help|recommend|suggest|advise)\s+(?:me|us)?\s*(?:an?|some)?\s*(?:advice|idea|ideas|tip|tips|recommendation|recommendations)?\b.*)$",
+        "",
+        msg,
+        flags=re.IGNORECASE,
+    )
+    msg = msg.strip(" \t_·-–—':;\",，。")
+    if not msg:
+        return []
+    parts = re.split(r"\s*,\s*|\s*，\s*|\s*、\s*", msg)
+    out: list[str] = []
+    for part in parts:
+        part = part.strip(" \t_·-–—':;\",，。")
+        if not part or len(part) < 2:
+            continue
+        if _CLAUSE_STARTERS.search(part):
+            break
+        part = re.sub(r"^(?:the|a|an)\s+", "", part, count=1, flags=re.I)
+        if part.lower() in out:
+            continue
+        out.append(part)
+        if len(out) >= max_likes:
+            break
+    return out
+
+
+def _extract_message_likes(message: str, max_likes: int = 4) -> list[str]:
+    """从自由文本中提取至多 max_likes 个文化锚点（节点自包含实现）。"""
+    likes: list[str] = []
+    for m in _LIKE_PATTERN.finditer(message or ""):
+        for seg in _clean_like_segments(m.group(1), max_likes=max_likes):
+            if seg.lower() not in [x.lower() for x in likes]:
+                likes.append(seg)
+            if len(likes) >= max_likes:
+                return likes
+    if likes:
+        return likes
+    for seg in _extract_plain_list_likes(message, max_likes=max_likes):
+        if seg.lower() not in [x.lower() for x in likes]:
+            likes.append(seg)
+        if len(likes) >= max_likes:
+            return likes
+    return likes
+
+
+def _seed_fallback_queries(seed: str, max_drop: int = 3) -> list[str]:
+    """Progressive de-scoping so 'the films of Christopher Nolan' still resolves."""
+    words = seed.split()
+    return [" ".join(words[i:]) for i in range(max_drop + 1) if len(words) > i]
+
+
+def _preferred_entity_types(seed: str) -> list[str] | None:
+    """Return Qloo entity type URNs the anchor phrase most likely belongs to.
+
+    NOT a hard constraint — it only triggers the type-specific re-search when the
+    domain-free top hit is a place AND the phrase clearly names a film/music
+    subject. This replaces the old behaviour that FORCED every anchor into the
+    recommendation target domain ('eat' turned 'Christopher Nolan' into a
+    beer-garden place; 'Chicago electric blues' into a venue).
+    """
+    text = seed.lower()
+    prefer: list[str] = []
+    if any(w in text for w in ("film", "movie", "director", "cinema", "nolan")):
+        prefer.append("urn:entity:movie")
+        prefer.append("urn:entity:person")
+    if any(w in text for w in ("blues", "music", "song", "band", "jazz", "artist", "album", "singer", "electric")):
+        prefer.append("urn:entity:artist")
+    return prefer or None
+
+
+def _entity_type_urn(entity: dict[str, Any]) -> str:
+    """Resolve an entity's Qloo type URN from `type`, `subtype`, or `types`.
+
+    `search_cultural_entities` normalizes hits to a singular `type` key, but
+    tests and raw /search payloads may carry `types` (list) or `subtype`
+    instead — mirror the project's `_resolve_subtype` so anchors resolve in
+    every shape without weakening the signal-type guard.
+    """
+    raw = entity.get("type") or entity.get("subtype") or ""
+    if isinstance(raw, str) and raw.startswith("urn:entity:"):
+        return raw
+    types = entity.get("types")
+    if isinstance(types, list):
+        for t in types:
+            if isinstance(t, str) and t.startswith("urn:entity:"):
+                return t
+    return ""
+
+
+def _seed_is_blocked(name: str, blocked: set[str], keywords: set[str]) -> bool:
+    """True when a seed/resolved name hits the Qloo template's exclude list.
+
+    `blocked` holds exact seed names (matched exactly or as a substring so the
+    long "Croce Rossa Italiana - …" entry is caught by "croce rossa");
+    `keywords` holds whole-class markers ("fellini", "italian pop") applied to
+    resolved recommendation names too.
+    """
+    key = (name or "").strip().lower()
+    if not key:
+        return True
+    if key in blocked:
+        return True
+    return any(b and len(b) >= 3 and b in key for b in blocked) or any(
+        k and k in key for k in keywords
+    )
+
+
+async def _resolve_anchor(client: Any, seed: str) -> dict[str, Any] | None:
+    """Resolve one cultural-anchor seed to a real Qloo entity.
+
+    Domain-free first: anchors MUST resolve to their natural cultural type
+    (director -> film, 'Chicago blues' -> artists), NOT be forced into the
+    recommendation target domain. If the top hit is still a place while the
+    phrase names a film/music subject, re-search with the preferred type so the
+    anchor stays cultural (the demo grounding defect).
+
+    Guard against non-signal entity types: Qloo /v2/insights rejects
+    `signal.interests.entities` values that are album/author/other non-signal
+    types with a 400 "invalid signal" error (verified live), which silently
+    empties recommendations. When the domain-free top hit lands on such a type
+    AND the seed phrase clearly names a film/music/person subject, we re-search
+    with the preferred entity type — every re-search result is still a REAL
+    Qloo hit (no fabricated anchors), and the chosen entity is guaranteed
+    usable as an insights signal.
+    """
+    from app.services.qloo.taste import search_cultural_entities
+
+    # Entity types Qloo accepts as `signal.interests.entities` in /v2/insights.
+    # Anything outside this set (album, author, …) yields a 400 invalid-signal
+    # error and must be re-searched into a signal-capable type.
+    _SIGNAL_TYPES = {
+        "urn:entity:artist", "urn:entity:movie", "urn:entity:tv_show",
+        "urn:entity:book", "urn:entity:podcast", "urn:entity:brand",
+        "urn:entity:destination", "urn:entity:place", "urn:entity:person",
+    }
+
+    for query in _seed_fallback_queries(seed):
+        try:
+            hits = await search_cultural_entities(client, query, limit=3)
+        except Exception as e:
+            logger.warning(f"qloo anchor search failed for {query!r}: {e}")
+            hits = []
+        if not hits or not isinstance(hits[0], dict):
+            continue
+        preferred = _preferred_entity_types(seed)
+        top = hits[0]
+        top_type = _entity_type_urn(top)
+        top_signal_ok = top_type in _SIGNAL_TYPES
+        if preferred and (
+            not top_signal_ok
+            or top.get("domain") == "dining"
+            or top_type == "urn:entity:place"
+        ):
+            # Non-signal top hit (album/author) or a place for a film/music
+            # subject — re-search against the preferred cultural type so the
+            # anchor is both the right entity AND a valid insights signal.
+            for etype in preferred:
+                if etype not in ("urn:entity:movie", "urn:entity:person", "urn:entity:artist"):
+                    continue
+                try:
+                    typed = await search_cultural_entities(client, query, entity_types=[etype], limit=1)
+                except Exception as e:
+                    logger.warning(f"qloo typed anchor search failed for {query!r}: {e}")
+                    typed = []
+                if typed and isinstance(typed[0], dict):
+                    cand = typed[0]
+                    cand_type = _entity_type_urn(cand)
+                    if cand_type in _SIGNAL_TYPES and (cand.get("domain") or "").lower() != "dining":
+                        return cand
+        if top_signal_ok:
+            return top
+    return None
+
+
+def input_node(state: AgentState) -> dict[str, Any]:
+    """输入归一化：raw_query / session_id / entities / retry_count 类型与默认值兜底。
+
+    不携带 feedback_store / taste_entities 等由外层注入或后续节点维护的字段，
+    保证 LangGraph 状态合并不会意外清空它们。
+    """
+    entities = state.get("entities", {})
+    if not isinstance(entities, dict):
+        entities = {}
+    cultural_likes = entities.get("cultural_likes", [])
+    if not isinstance(cultural_likes, list):
+        cultural_likes = [cultural_likes] if cultural_likes else []
+    cultural_likes = [str(s) for s in cultural_likes if s]
+    target_domain = entities.get("target_domain", "") or ""
+    target_domains = entities.get("target_domains", [])
+    if not isinstance(target_domains, list):
+        target_domains = [target_domains] if target_domains else []
+    target_domains = [str(d) for d in target_domains if d]
+    location_query = entities.get("location_query", "") or ""
+    if not isinstance(location_query, str):
+        location_query = ""
+    # Qloo structured-template excludes: preserved through the graph state merge
+    # so qloo_cultural_recommend_node still receives the blacklist when invoked
+    # inside build_qloo_agent_graph (input_node rebuilds the entities dict).
+    exclude_seeds = entities.get("exclude_seeds", [])
+    if not isinstance(exclude_seeds, list):
+        exclude_seeds = [exclude_seeds] if exclude_seeds else []
+    exclude_seeds = [str(s) for s in exclude_seeds if s]
+    exclude_keywords = entities.get("exclude_keywords", [])
+    if not isinstance(exclude_keywords, list):
+        exclude_keywords = [exclude_keywords] if exclude_keywords else []
+    exclude_keywords = [str(k) for k in exclude_keywords if k]
+    # persona_mode（locked/mixed）透传：build_qloo_query 据此决定是否从问句提取
+    # message likes（locked 必须 PURE read 档案锚点）；route_intent 据此决定是否
+    # 用 persona 锚点兜底进入 Qloo 节点。
+    persona_mode = str(entities.get("persona_mode") or "")
+    try:
+        retry_count = max(int(state.get("retry_count") or 0), 0)
+    except (TypeError, ValueError):
+        retry_count = 0
+    return {
+        "raw_query": str(state.get("raw_query") or ""),
+        "session_id": str(state.get("session_id") or "default"),
+        "entities": {
+            "cultural_likes": cultural_likes,
+            "target_domain": str(target_domain),
+            "target_domains": target_domains,
+            "location_query": str(location_query),
+            "exclude_seeds": exclude_seeds,
+            "exclude_keywords": exclude_keywords,
+            "persona_mode": persona_mode,
+        },
+        "retry_count": retry_count,
+        "last_error": None,
+    }
+
+
+def intent_node(state: AgentState) -> dict[str, Any]:
+    """B档规则意图分类节点（无本地 LLM）：输出 intent / intent_confidence。"""
+    from app.services.graph.checkers import QLOO_INTENT, UNKNOWN_INTENT, classify_intent
+
+    intent = classify_intent(str(state.get("raw_query", "")))
+    return {
+        "intent": intent,
+        "intent_confidence": 1.0 if intent == QLOO_INTENT else 0.0,
+    }
+
+
+def build_qloo_query(state: AgentState) -> dict[str, Any]:
+    """构造 Qloo 查询负载：seed 名称（entities.cultural_likes）+ target_domain。
+
+    消息内联的 like 锚点（如 "loves Frank Sinatra"）会补充进 seed 列表；
+    seed 为空时才回退到 raw_query 整体作为兜底查询项。
+    """
+    entities = state.get("entities", {}) or {}
+    likes = entities.get("cultural_likes", [])
+    if not isinstance(likes, list):
+        likes = [likes] if likes else []
+    likes = [str(s) for s in likes if s]
+    # persona_mode='locked'（终版契约④②）：种子是档案锚点的 PURE read，绝不从
+    # 问句文本提取新的 message likes——用户锁上档案后问什么都用已校验锚点。
+    if entities.get("persona_mode") != "locked":
+        for m in _extract_message_likes(str(state.get("raw_query", ""))):
+            if m.lower() not in [x.lower() for x in likes]:
+                likes.append(m)
+    if not likes:
+        likes = [str(state.get("raw_query", "")) or "dinner"]
+    target_domain = entities.get("target_domain", "") or ""
+    target_domains = entities.get("target_domains", [])
+    if not isinstance(target_domains, list):
+        target_domains = [target_domains] if target_domains else []
+    target_domains = [str(d) for d in target_domains if d]
+    location_query = entities.get("location_query", "") or ""
+    if not isinstance(location_query, str):
+        location_query = ""
+    return {
+        "qloo_query": {
+            "seed_names": likes,
+            "target_domain": str(target_domain) or None,
+            "target_domains": target_domains or None,
+            "location_query": str(location_query) or None,
+            "limit": 10,
+        },
+        "qloo_seed_names": likes,
+        "qloo_target_domain": str(target_domain),
+    }
+
+
+
+async def qloo_call_node(state: AgentState) -> dict[str, Any]:
+    """B档真实 Qloo 调用节点：复用 qloo_cultural_recommend_node 的全部内部逻辑。
+
+    - 合并节点返回并写入 `qloo_raw_response`（解析实体 / 推荐 / 跨域结果摘要）。
+    - 显式清空 `last_error`：只有本次尝试真正失败才保留，避免上一次重试的错误
+      残留污染 `check_qloo_result` 的决策。
+    """
+    with NodeMetrics("qloo_call_node"):
+        try:
+            result = await qloo_cultural_recommend_node(state)
+        except Exception as e:
+            logger.exception(e)
+            result = {
+                "qloo_enabled": False,
+                "last_error": f"qloo_call_node异常:{e}",
+                "error_type": "business",
+            }
+    merged: dict[str, Any] = dict(result) if isinstance(result, dict) else {}
+    if not merged.get("last_error"):
+        merged["last_error"] = None
+    merged["qloo_raw_response"] = {
+        "resolved_names": merged.get("qloo_resolved_names", []),
+        "recommendations": merged.get("qloo_recommendations", []),
+        "cross_domain": merged.get("qloo_cross_domain_results", {}),
+    }
+    return merged
+
+
+def retry_node(state: AgentState) -> dict[str, Any]:
+    """B档重试节点：retry_count+1、清理 last_error、记录重试原因，回到 qloo_call_node。"""
+    try:
+        retries = int(state.get("retry_count") or 0) + 1
+    except (TypeError, ValueError):
+        retries = 1
+    reason = ""
+    if state.get("last_error"):
+        reason = str(state["last_error"])[:200]
+    elif not state.get("qloo_resolved_names") and not state.get("qloo_recommendations"):
+        reason = "qloo returned no resolvable anchors (empty result)"
+    else:
+        reason = "qloo retry"
+    inc_counter("qloo_retry_triggered_total")
+    return {
+        "retry_count": retries,
+        "last_error": None,
+        "retry_triggered": True,
+        "qloo_retry_reason": reason,
+    }
+
+
+def format_output(state: AgentState) -> dict[str, Any]:
+    """B档成功出口：保证 taste_data_source 标记 live（图内兜底为 preview）。"""
+    data_source = state.get("taste_data_source", "") or ""
+    if not data_source:
+        data_source = "live" if state.get("qloo_enabled") else "preview"
+    return {"taste_data_source": data_source}
+
+
+def fallback_node(state: AgentState) -> dict[str, Any]:
+    """B档回退出口：无 live 数据时降级为 preview，附回退原因（诚实降级，不伪造证据）。"""
+    intent = state.get("intent", "")
+    if state.get("last_error"):
+        reason = f"qloo live call degraded: {state['last_error']}"
+    elif intent and intent != "qloo_recommend":
+        reason = f"intent '{intent}' is out of the qloo agent scope — plain reply"
+    elif not state.get("qloo_enabled"):
+        reason = "qloo disabled (no key) — preview/preference-only grounding"
+    else:
+        reason = "qloo returned no resolvable cultural anchors after retries"
+    inc_counter("qloo_fallback_triggered_total")
+    return {
+        "qloo_enabled": False,
+        "taste_data_source": "preview",
+        "fallback_message": reason,
+        "last_error": None,
+    }
 
 
 # ===== Senior Dining Sub-Graph Nodes =====
@@ -2168,7 +2728,12 @@ async def taste_health_filter_node(state: AgentState) -> dict[str, Any]:
                     "passes": health["passes"] and med["passes"],
                     "labels": health["labels"] + med["labels"],
                     "warnings": health["warnings"] + med["warnings"],
+                    "usda": health.get("usda"),
                 }
+                # Structured screening bucket (same contract as tastecare.recommend_meals):
+                # "pass" = fully meets active constraints, "review" = culturally matched
+                # but some menu items may exceed them. Derived from health.passes only.
+                entity["screening"] = "pass" if entity["health"]["passes"] else "review"
                 if entity["health"]["passes"]:
                     passed_count += 1
                 else:

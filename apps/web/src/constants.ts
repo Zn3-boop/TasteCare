@@ -8,12 +8,17 @@ export const DOMAINS = [
   { key: 'dining', label: '🍽️ Dining' },
   { key: 'fashion', label: '👗 Fashion' },
   { key: 'travel', label: '✈️ Travel' },
+  { key: 'podcast', label: '🎙️ Podcast' },
   { key: 'book', label: '📚 Books' },
 ]
 
 export const DOMAIN_COLORS: Record<string, string> = {
   music: '#1DB954', film: '#E50914', dining: '#FF6B35',
   fashion: '#C77DFF', travel: '#00B4D8', podcast: '#FFB703', book: '#8B5CF6',
+  // 'personal' — the persona's own taste anchors entered in the PersonaPicker,
+  // rendered as the innermost ring of the Taste Bridge so a custom person's
+  // habits are visible even before any live Qloo data arrives.
+  personal: '#F472B6',
 }
 
 export const SENIOR_PERSONA = {
@@ -36,14 +41,38 @@ export const GENERIC_LLM_RESULTS = [
 ]
 
 export const DISCLAIMER_EN = 'This application provides culturally-grounded dining recommendations and general dietary screening only — it does not constitute medical advice. If medications are involved (e.g., anticoagulants, blood pressure, or diabetes drugs), please confirm specific dish suitability with your physician or pharmacist before deciding.'
-export const DISCLAIMER_ZH = '本应用仅提供文化口味层面的餐饮推荐与一般性膳食筛查，不构成医疗建议。若涉及用药（如抗凝、降压、降糖等），具体菜品是否适合，请务必咨询您的医生或药师后再决定。'
 
-// G3: English mapping for the backend's health warnings + friendly constraint names.
-export const EN_WARNING: Record<string, string> = {
-  '可能过硬/难咀嚼（如油炸、硬壳、坚果）。': 'May be too hard/crunchy to chew comfortably.',
-  '可能高钠（腌制/烟熏/酱料等）。': 'May be high in sodium (cured/smoked/sauces).',
-  '可能高糖（甜点/含糖饮品等）。': 'May be high in sugar (desserts/sugary drinks).',
-}
+// Example query seeds shown when the Taste Bridge has no data yet.
+export const EMPTY_STATE_EXAMPLES = [
+  'Italian cuisine',
+  'Jazz music',
+  'Frank Sinatra',
+  'Bob Dylan',
+  'Classic Hollywood films',
+  'Tom Yum soup',
+  'Matcha',
+  'Avocado',
+]
+
+// Scenario prompt buttons for Senior Dining tab
+export const SENIOR_SCENARIO_PROMPTS = [
+  'My 80-year-old dad loves Frank Sinatra and Italian food but needs low-sodium meals. What would he enjoy near New York?',
+  'My grandmother grew up in Little Italy, loves jazz and old Hollywood. She has diabetes and can\'t eat hard foods.',
+  'Help my 75-year-old mom who loves Bob Dylan and folk music find soft, healthy meals in Chicago.',
+]
+
+// Scenario prompt buttons for Agent tab
+export const AGENT_SCENARIO_PROMPTS = [
+  '"I love Christopher Nolan films and Chicago blues — where should I eat in New York and what should I wear?"',
+  '"My 82-year-old father loves Frank Sinatra, Italian food, and old movies. He has hypertension and poor dentition. What would he enjoy eating near Boston?"',
+  '"Recommend dinner for Maria, who has hypertension, poor dentition, and prefers light Jiangnan home cooking."',
+]
+// Domain load indicators rendered while cross-domain requests are in flight.
+export type DomainStatus = 'done' | 'loading' | 'idle'
+export const DOMAIN_LIST = ['music', 'film', 'dining', 'fashion', 'travel', 'podcast', 'book'] as const
+export type DomainKey = typeof DOMAIN_LIST[number]
+
+// G3: friendly names/icons for active health constraints on TasteCare cards.
 export const EN_CONSTRAINT_LABEL: Record<string, string> = {
   low_sodium: 'Low Sodium',
   low_sugar: 'Low Sugar',
@@ -69,7 +98,7 @@ export type BridgeNodeData = { name: string; why: string; popularity: number }
 export const PREVIEW_BRIDGE: Record<string, BridgeNodeData[]> = {
   music: [
     { name: 'Ella Fitzgerald', popularity: 0.93, why: 'A frequent Sinatra collaborator and the "First Lady of Song" — they shared bands, albums and the swing-era stage.' },
-    { name: 'Count Basie Orchestra', popularity: 0.9, why: 'Sinatra fronted Basie\'s band and recorded the live classic "Sinatra at the Sands" with them.' },
+    { name: 'Count Basie Orchestra', popularity: 0.9, why: "Sinatra fronted Basie's band and recorded the live classic \"Sinatra at the Sands\" with them." },
     { name: 'Tony Bennett', popularity: 0.87, why: 'An heir of the crooner lineage whose phrasing descends directly from Sinatra.' },
   ],
   dining: [
@@ -80,7 +109,7 @@ export const PREVIEW_BRIDGE: Record<string, BridgeNodeData[]> = {
   film: [
     { name: 'Guys and Dolls', popularity: 0.91, why: 'Sinatra starred in this 1955 musical at the peak of his crossover film fame.' },
     { name: 'On the Waterfront', popularity: 0.85, why: 'An iconic New York drama Sinatra fought to appear in — classic Hollywood at its best.' },
-    { name: 'Some Came Running', popularity: 0.8, why: 'A Sinatra vehicle blending the Rat Pack era\'s glamour with a searching dramatic turn.' },
+    { name: 'Some Came Running', popularity: 0.8, why: "A Sinatra vehicle blending the Rat Pack era's glamour with a searching dramatic turn." },
   ],
   travel: [
     { name: 'Little Italy, NYC', popularity: 0.9, why: 'Maria, like Sinatra, grew up with Italian-American New York culture — the emotional anchor of the whole graph.' },
@@ -88,13 +117,21 @@ export const PREVIEW_BRIDGE: Record<string, BridgeNodeData[]> = {
     { name: 'Miami Beach, FL', popularity: 0.79, why: 'A perennial Rat Pack stage-city, mixing music, film glamour and resort dining.' },
   ],
   fashion: [
-    { name: 'Vintage Italian Tailoring', popularity: 0.86, why: 'Sinatra\'s signature two-piece, high-waisted Italian-cut suits set the mid-century look.' },
-    { name: 'Classic Fedora', popularity: 0.84, why: 'The fedora is practically Sinatra\'s emblem — film noir and jazz stage in one silhouette.' },
+    { name: 'Vintage Italian Tailoring', popularity: 0.86, why: "Sinatra's signature two-piece, high-waisted Italian-cut suits set the mid-century look." },
+    { name: 'Classic Fedora', popularity: 0.84, why: "The fedora is practically Sinatra's emblem — film noir and jazz stage in one silhouette." },
     { name: 'Cuff-linked Dress Shirt', popularity: 0.78, why: 'Evening Rat Pack wear: crisp, tailored, understated glamour.' },
+  ],
+  podcast: [
+    { name: 'Rat Pack Radio Shows', popularity: 0.85, why: "Sinatra's live radio broadcasts defined the 1940s-50s podcast-like entertainment format." },
+    { name: 'Jazz Talk Radio', popularity: 0.79, why: 'The conversational jazz format mirrors the intimacy of supper club performances.' },
+  ],
+  book: [
+    { name: 'The Great Gatsby', popularity: 0.82, why: 'The Jazz Age novel Sinatra embodied — pre-war American glamour and melancholy.' },
+    { name: 'On the Waterfront Script Books', popularity: 0.71, why: "Sinatra's iconic role cemented New York dockworker literature in the cultural canon." },
   ],
 }
 
-export const BRIDGE_DOMAIN_ORDER = ['music', 'dining', 'film', 'travel', 'fashion']
+export const BRIDGE_DOMAIN_ORDER = ['music', 'dining', 'film', 'travel', 'fashion', 'podcast', 'book']
 
 export const BRIDGE_LEGEND = [
   { domain: 'music', label: 'Music' },
@@ -102,4 +139,6 @@ export const BRIDGE_LEGEND = [
   { domain: 'film', label: 'Film' },
   { domain: 'travel', label: 'Travel' },
   { domain: 'fashion', label: 'Fashion' },
+  { domain: 'podcast', label: 'Podcast' },
+  { domain: 'book', label: 'Book' },
 ]

@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# 强制 UTF-8 编码
+# Force UTF-8 encoding
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 os.environ.setdefault('PYTHONUTF8', '1')
 
@@ -17,17 +17,17 @@ if hasattr(sys.stdout, 'reconfigure') and (sys.stdout.encoding or '').lower() !=
 if hasattr(sys.stderr, 'reconfigure') and (sys.stderr.encoding or '').lower() != 'utf-8':
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-# .env 已由 app/core/config.py 的 pydantic-settings Settings（env_file 指向
-# apps/server/.env）统一加载，无需在此重复 load_dotenv。
+# .env is loaded centrally by app/core/config.py (pydantic-settings Settings with
+# env_file pointing to apps/server/.env); no need to call load_dotenv again here.
 
-# Web demo（apps/web）专注：仅 import web demo 用到的 6 个 router。
-# 桌面端 router(automation / voice / desktop / provider / browser / agent 等)
-# 已全部清理，不再 import；相关文件不再暴露路由。
-from app.api import ablation, chat, health, qloo, tastecare, tools
+# Web demo (apps/web) focus: import only the 6 routers used by the web demo.
+# Desktop routers (automation / voice / desktop / provider / browser / agent …)
+# are intentionally not imported; their files no longer expose routes.
+from app.api import ablation, chat, community, health, memory, qloo, stt, tastecare, tools
 from app.utils.response_cleaner import clean_fastapi_response_body
 
 
-# ========== 使用 lifespan 替代废弃的 on_event("startup") ==========
+# ========== Lifespan replaces the deprecated on_event("startup") ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -45,8 +45,8 @@ app = FastAPI(
 )
 
 
-# ========== CORS 配置：支持 CORS_ALLOW_ALL 开关 ==========
-# 部署关键配置集中在 app/core/config.py（pydantic-settings），启动时解析一次。
+# ========== CORS: supports the CORS_ALLOW_ALL switch ==========
+# Deployment-critical config lives in app/core/config.py (pydantic-settings), parsed once at startup.
 from app.core.config import get_settings
 
 _settings = get_settings(cache=True)
@@ -61,16 +61,16 @@ app.add_middleware(
 )
 
 
-# ========== 全局中间件：确保 UTF-8 + 异常安全处理 ==========
+# ========== Global middleware: UTF-8 + exception safety ==========
 @app.middleware("http")
 async def ensure_utf8(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
-        # 不暴露内部错误详情给客户端，只返回通用错误
+        # Never leak internal error details to clients; return a generic message.
         return JSONResponse(
             status_code=500,
-            content={"detail": "服务器内部错误，请稍后再试或联系管理员。"},
+            content={"detail": "Internal server error. Please try again later or contact the administrator."},
             media_type='application/json; charset=utf-8',
         )
 
@@ -82,7 +82,7 @@ async def ensure_utf8(request: Request, call_next):
     return response
 
 
-# ========== 全局中间件：清洗响应 ==========
+# ========== Global middleware: response cleaning ==========
 @app.middleware("http")
 async def clean_response_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -107,7 +107,7 @@ async def clean_response_middleware(request: Request, call_next):
         media_type='application/json; charset=utf-8',
     )
 
-# 简单路由测试
+# Simple route smoke tests
 @app.get("/")
 async def root():
     return {"status": "ok", "name": "AI Desktop Agent API"}
@@ -116,11 +116,14 @@ async def root():
 async def Health_check():
     return {"status": "healthy"}
 
-# ========== Web demo 路由注册（业务路由统一 /api/v1 前缀；/ 与 /health 为探活路径，不加版本） ==========
+# ========== Web demo routes (business routers under /api/v1; / and /health are liveness paths, no version) ==========
 API_V1_PREFIX = "/api/v1"
 app.include_router(health.router)
 app.include_router(chat.router, prefix=API_V1_PREFIX)
+app.include_router(stt.router, prefix=API_V1_PREFIX)
 app.include_router(tools.router, prefix=API_V1_PREFIX)
 app.include_router(qloo.router, prefix=API_V1_PREFIX)
 app.include_router(tastecare.router, prefix=API_V1_PREFIX)
 app.include_router(ablation.router, prefix=API_V1_PREFIX)
+app.include_router(memory.router, prefix=API_V1_PREFIX)
+app.include_router(community.router, prefix=API_V1_PREFIX)

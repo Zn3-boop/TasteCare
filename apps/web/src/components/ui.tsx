@@ -3,9 +3,10 @@
 
 import type { QlooEntity, TasteCareRecommendation } from '../api'
 import {
-  DOMAIN_COLORS, CONSTRAINT_META, EN_WARNING, EN_CONSTRAINT_LABEL, EN_CONSTRAINT_ICON,
+  DOMAIN_COLORS, CONSTRAINT_META, EN_CONSTRAINT_LABEL, EN_CONSTRAINT_ICON,
 } from '../constants'
 import { sx } from './sx'
+import { SafeImg } from './SafeImg'
 
 export function SkeletonRow() {
   return (
@@ -53,9 +54,10 @@ export function EntityCard({ entity, rank, onClick }: { entity: QlooEntity; rank
   )
 }
 
-export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: TasteCareRecommendation; rank?: number; activeConstraints?: string[] }) {
+export function TasteCareCard({ rec, rank, activeConstraints = [], showFitScore = false }: { rec: TasteCareRecommendation; rank?: number; activeConstraints?: string[]; showFitScore?: boolean }) {
   const health = rec.health
-  const warnings = (health?.warnings || []).map((w) => EN_WARNING[w] || w)
+  const screening = rec.screening ?? (health?.passes ? 'pass' : 'review')
+  const warnings = health?.warnings || []
   const wLower = warnings.join(' ').toLowerCase()
   const constraintFail = (c: string) =>
     (c === 'soft_chewable' && (wLower.includes('hard') || wLower.includes('crunchy'))) ||
@@ -65,9 +67,15 @@ export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: Tast
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 18px', borderRadius: 12, background: health?.passes ? '#0D1F17' : '#111827', border: `1px solid ${health?.passes ? '#065F4644' : '#FF6B3522'}`, overflow: 'hidden' }}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+        {showFitScore && rec.fit != null && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#FF6B35', lineHeight: 1 }}>{Math.round(rec.fit * 100)}%</div>
+            <div style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'right' }}>Cultural<br/>Fit</div>
+          </div>
+        )}
         {rec.image ? (
           <div style={{ width: 104, height: 72, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg,#1F2937,#374151)' }}>
-            <img src={rec.image} alt={rec.name} loading="lazy" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            <SafeImg src={rec.image} alt={rec.name} fallbackChar={rec.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           </div>
         ) : (
           <div style={{ width: 104, height: 72, borderRadius: 8, flexShrink: 0, background: 'linear-gradient(135deg,#FF6B3518,#1F2937)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🍽️</div>
@@ -77,7 +85,18 @@ export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: Tast
             {rank != null && <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 700 }}>#{rank}</span>}
             <div style={{ fontSize: 15, fontWeight: 600, color: '#E5E7EB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.name}</div>
           </div>
-          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}><ScoreBadge value={rec.fit ?? rec.popularity} source={rec.fit_source === 'qloo-affinity' ? 'qloo-affinity' : 'qloo-popularity'} /></div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+            {showFitScore && rec.fit != null ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', background: '#78350F44', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                  🎯 Qloo Cultural Fit: {rec.fit.toFixed(2)}
+                </span>
+                <ScoreBadge value={rec.popularity} source={rec.fit_source === 'qloo-affinity' ? 'qloo-affinity' : 'qloo-popularity'} />
+              </span>
+            ) : (
+              <ScoreBadge value={rec.fit ?? rec.popularity} source={rec.fit_source === 'qloo-affinity' ? 'qloo-affinity' : 'qloo-popularity'} />
+            )}
+          </div>
           {rec.description && <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 6, lineHeight: 1.5 }}>{rec.description}</div>}
           {rec.address && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>📍 {rec.address}</div>}
         </div>
@@ -87,12 +106,12 @@ export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: Tast
       </div>
       {rec.tags && rec.tags.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {rec.tags.slice(0, 6).map((t, i) => <span key={i} style={{ fontSize: 10, color: '#9CA3AF', background: '#1F2937', padding: '2px 8px', borderRadius: 6 }}>{t}</span>)}
+          {Array.from(new Set((rec.tags || []).slice(0, 6))).map((t) => <span key={t} style={{ fontSize: 10, color: '#9CA3AF', background: '#1F2937', padding: '2px 8px', borderRadius: 6 }}>{t}</span>)}
         </div>
       )}
       {activeConstraints.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {activeConstraints.map((c) => {
+          {Array.from(new Set(activeConstraints)).map((c) => {
             const meta = CONSTRAINT_META.find((m) => m.key === c)
             const fail = constraintFail(c)
             const label = EN_CONSTRAINT_LABEL[c] || meta?.label || c
@@ -109,6 +128,26 @@ export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: Tast
           {warnings.map((w, i) => <span key={i} style={{ fontSize: 11, color: '#FCA5A5' }}>⚠ {w}</span>)}
         </div>
       )}
+      {health?.usda && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 700 }}>USDA · {health.usda.matched}</span>
+          <span title="Sodium per 100g (daily value ≈ 2300mg)" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#1F2937', color: health.usda.per_100g.sodium_mg > 400 ? '#FCA5A5' : '#93C5FD' }}>
+            🧂 {health.usda.per_100g.sodium_mg}mg Na
+          </span>
+          <span title="Protein per 100g" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#1F2937', color: '#93C5FD' }}>
+            💪 {health.usda.per_100g.protein_g}g protein
+          </span>
+          <span title="Fiber per 100g" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#1F2937', color: '#93C5FD' }}>
+            🌾 {health.usda.per_100g.fiber_g}g fiber
+          </span>
+          <span title="Calories per 100g" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#1F2937', color: '#93C5FD' }}>
+            🔥 {health.usda.per_100g.kcal} kcal
+          </span>
+          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#1F2937', color: health.usda.texture === 'hard' ? '#FCA5A5' : '#6EE7B7' }}>
+            {health.usda.texture === 'soft' ? '🫘 Soft texture' : health.usda.texture === 'hard' ? '🦷 Hard texture' : '🍚 Medium texture'}
+          </span>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid #1F2937', paddingTop: 8 }}>
         <div style={{ fontSize: 11.5, lineHeight: 1.5, color: '#E5E7EB' }}>
           <span style={{ fontWeight: 700, color: '#FF6B35' }}>✨ Cultural match:</span>{' '}
@@ -116,7 +155,7 @@ export function TasteCareCard({ rec, rank, activeConstraints = [] }: { rec: Tast
         </div>
         <div style={{ fontSize: 11.5, lineHeight: 1.5, color: health?.passes ? '#6EE7B7' : '#FCA5A5' }}>
           <span style={{ fontWeight: 700, color: '#3B82F6' }}>🛡️ Safety check:</span>{' '}
-          {rec.safety_validation || (health?.passes ? 'All active constraints passed.' : 'Review needed for your active health constraints.')}
+          {rec.safety_validation || (screening === 'pass' ? 'All active constraints passed' : 'Some menu items may violate constraints; select dishes carefully')}
         </div>
       </div>
     </div>
