@@ -1,4 +1,4 @@
-# 部署镜像只需代码 + 依赖清单；排除本地开发噪声，防 COPY . . 泄漏/膨胀
+# Lean deploy image: exclude local dev noise to keep COPY . . small and safe
 **/__pycache__/
 *.pyc
 .env
