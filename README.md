@@ -163,6 +163,19 @@ The hackathon submission requires an externally hosted demo. Deploy `apps/server
 
 MIT — see [LICENSE](./LICENSE).
 
+## Deploy (single-domain)
+
+The web demo (`apps/web/dist`) is built into `apps/server/static` and served by
+FastAPI on the same domain as the API (no CORS, one URL). Deployment goes through
+a GitHub repository on SnapDeploy (Root Directory: `apps/server`); after pushing
+to `main`, SnapDeploy auto-rebuilds via its GitHub webhook. Verify with:
+
+- `GET /health` → `{"status":"healthy"}`
+- `GET /` → the TasteCare SPA
+- `GET /<any-spa-route>` → SPA fallback (`index.html`), never 404
+
+To trigger a redeploy, push any commit to `main`.
+
 ## Medical disclaimer
 
 TasteCare is a hackathon prototype for demonstration only. It is not medical software, a licensed medical device, a dietitian, or a clinical recommendation system. Do not use it to diagnose, treat, or make decisions about health, medication, or diet without consulting a qualified professional. AI-generated recommendations may be inaccurate or unsafe; users must independently verify them.
