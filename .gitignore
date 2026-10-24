@@ -137,6 +137,10 @@ package-lock.json
 # Deployment artifacts
 apps/server/deploy/
 
+# SnapDeploy zip experimental artifacts (zip pipeline is unused; GitHub repo deploy is canonical)
+apps/server/scripts/*.zip
+apps/server/scripts/package_snapdeploy.ps1
+
 # Desktop models (VAD etc.)
 apps/desktop/models/
 

@@ -4,9 +4,9 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 # Force UTF-8 encoding
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Desktop Agent API",
+    title="TasteCare API",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -107,10 +107,18 @@ async def clean_response_middleware(request: Request, call_next):
         media_type='application/json; charset=utf-8',
     )
 
-# Simple route smoke tests
-@app.get("/")
+# Simple route smoke tests: when the built web demo is present (apps/server/static),
+# the domain root serves the SPA index.html (single-domain deployment); otherwise it
+# degrades to a plain JSON liveness payload (local dev without a build).
+_DIST_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+@app.get("/", include_in_schema=False)
 async def root():
-    return {"status": "ok", "name": "AI Desktop Agent API"}
+    index_html = _DIST_DIR / "index.html"
+    if _DIST_DIR.is_dir() and index_html.is_file():
+        return FileResponse(index_html)
+    return {"status": "ok", "name": "TasteCare API"}
 
 @app.get("/health")
 async def Health_check():
@@ -127,3 +135,61 @@ app.include_router(tastecare.router, prefix=API_V1_PREFIX)
 app.include_router(ablation.router, prefix=API_V1_PREFIX)
 app.include_router(memory.router, prefix=API_V1_PREFIX)
 app.include_router(community.router, prefix=API_V1_PREFIX)
+
+
+# ========== Static SPA hosting (apps/web built into apps/server/static) ==========
+# The web demo builds to apps/web/dist, which is copied into apps/server/static and
+# shipped in the image via COPY . . (see apps/server/.dockerignore — static/ is NOT
+# excluded). This lets SnapDeploy serve frontend + backend on ONE domain with no CORS.
+# The catch-all is registered LAST, after every API router, so /api/v1/*, /health,
+# /docs, /openapi.json etc. keep matching their real routes first.
+
+# (_DIST_DIR is defined above next to the root route.)
+_SPA_ASSET_EXTENSIONS = {
+    ".html", ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif",
+    ".webp", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".map", ".json", ".txt",
+}
+
+# _API_PREFIXES: paths that must never fall back to index.html even if unmatched by a
+# specific router (avoids SPA swallowing unknown API calls into a 200 index page).
+_API_PREFIXES = ("api/", "api", "docs", "redoc", "openapi.json", "health")
+
+
+def _spa_asset_path(rel: str) -> Path | None:
+    """Resolve a request path under the static dir; None if traversal/unsafe."""
+    if not rel or rel.startswith((".", "..")) or ".." in rel.split("/"):
+        return None
+    candidate = (_DIST_DIR / rel).resolve()
+    try:
+        candidate.relative_to(_DIST_DIR.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    # Never hijack API / liveness / OpenAPI paths (defensive; specific routes above
+    # already match first, this guards unknown sub-paths like /api/v1/nonexistent).
+    first_seg = full_path.split("/", 1)[0].lower()
+    if first_seg in _API_PREFIXES or full_path.lower().startswith(_API_PREFIXES):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not _DIST_DIR.is_dir():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Existing static asset (e.g. /assets/index-*.js) → serve the file.
+    asset = _spa_asset_path(full_path)
+    if asset is not None:
+        return FileResponse(asset)
+
+    # Unknown deep link (e.g. /tastecare) → serve index.html so the SPA router
+    # (React state) renders the right view; browser refresh must not 404.
+    ext = Path(full_path).suffix.lower()
+    if ext and ext not in _SPA_ASSET_EXTENSIONS:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    index_html = _DIST_DIR / "index.html"
+    if index_html.is_file():
+        return FileResponse(index_html)
+    raise HTTPException(status_code=404, detail="Not found")
